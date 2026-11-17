@@ -1,0 +1,56 @@
+site_name: 海光 DCU 微架构与算子优化指南
+site_description: 从软件执行模型、CU/Wave64/LDS/MMAC 微架构到 HIP、Triton、lightop 与 hipprof 硬件 PMC 实测的实战手册
+site_url: https://mantuoluozk.github.io/dcu-microarch-guide/
+repo_url: https://github.com/mantuoluozk/dcu-microarch-guide
+repo_name: mantuoluozk/dcu-microarch-guide
+
+theme:
+  name: material
+  language: zh
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: cyan
+      toggle:
+        icon: material/brightness-7
+        name: 切换到深色模式
+    - scheme: slate
+      primary: indigo
+      accent: cyan
+      toggle:
+        icon: material/brightness-4
+        name: 切换到浅色模式
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - search.suggest
+    - search.highlight
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.arithmatex:
+      generic: true
+  - tables
+  - toc:
+      permalink: true
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+
+nav:
+  - 首页: index.md
+  - 微架构原理:
+      - DCU 微架构与 Kernel 执行机制: architecture/dcu-microarch.md
+  - 实战教程与实验:
+      - BW100 微架构实战教程（持续更新）: tutorials/bw100-hands-on.md
+      - 实验手册与编译指南: tutorials/experiment-guide.md
+  - 实测报告:
+      - BW100 微架构与算子实测报告: reports/bw100-benchmark-report.md

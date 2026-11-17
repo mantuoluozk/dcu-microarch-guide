@@ -1,0 +1,22 @@
+# Build & site artifacts
+site/
+__pycache__/
+*.pyc
+*.pyo
+
+# Compiled HIP binaries & ISA dumps
+experiments/01_device_info_and_isa
+experiments/02_coalescing_and_vec
+experiments/03_lds_bank_conflict
+experiments/04_branch_divergence
+experiments/05_occupancy_and_ilp
+experiments/06_shuffle_vs_lds
+experiments/isa_dump/
+experiments/prof_out/
+*.s
+*.ii
+*.bc
+*.o
+*.hipfb
+*.csv
+*.db

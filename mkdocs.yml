@@ -1,5 +1,5 @@
 site_name: 海光 DCU 微架构与算子优化指南
-site_description: 从软件执行模型、CU/Wave64/LDS/MMAC 微架构到 HIP、Triton、lightop 与 hipprof 硬件 PMC 实测的实战手册
+site_description: 从软件执行模型、CU/Wave64/LDS/MMAC 微架构到 HIP、Triton、lightop 与 hipprof 硬件 PMC 计数器实测的实战手册
 site_url: https://mantuoluozk.github.io/dcu-microarch-guide/
 repo_url: https://github.com/mantuoluozk/dcu-microarch-guide
 repo_name: mantuoluozk/dcu-microarch-guide
@@ -48,9 +48,19 @@ extra_javascript:
 nav:
   - 首页: index.md
   - 微架构原理:
-      - DCU 微架构与 Kernel 执行机制: architecture/dcu-microarch.md
-  - 实战教程与实验:
-      - BW100 微架构实战教程（持续更新）: tutorials/bw100-hands-on.md
-      - 实验手册与编译指南: tutorials/experiment-guide.md
-  - 实测报告:
-      - BW100 微架构与算子实测报告: reports/bw100-benchmark-report.md
+      - 第 1 章：整体架构与软件栈链路: 01-overview/software-stack.md
+      - 第 2 章：线程映射、SIMT 分支与计算单元: 02-compute/cu-and-simt.md
+      - 第 3 章：存储体系、合并访存与异步等待: 03-memory/memory-hierarchy.md
+      - 第 4 章：Kernel 生命周期、Occupancy 与 Roofline: 04-scheduling/occupancy-and-roofline.md
+  - BW100 实战实验:
+      - 实验导览：环境、ISA 与 hipprof 工具链: labs/lab-setup.md
+      - 实验 1：全局内存合并访存与 float4 向量化: labs/lab01-memory-coalescing.md
+      - 实验 2：LDS Bank Conflict 与 Swizzle 消除: labs/lab02-lds-bank-conflict.md
+      - 实验 3：SIMT 分支发散与 If-Conversion: labs/lab03-branch-divergence.md
+      - 实验 4：Occupancy 悬崖、ILP 与 Shuffle 规约: labs/lab04-occupancy-and-shuffle.md
+      - 实验 5：Triton vs lightop 融合 RMSNorm: labs/lab05-triton-lightop-rmsnorm.md
+      - 实验 6：Triton GEMM vs rocBLAS 与 PMC 破案: labs/lab06-triton-gemm-vs-rocblas.md
+  - 算子案例与方法论:
+      - 案例 1：LSTM Persistent MMAC Kernel 拆解: cases/lstm-persistent-kernel.md
+      - 案例 2：大模型算子迁移与优化清单: cases/llm-operators-playbook.md
+  - 实验路线图: roadmap.md

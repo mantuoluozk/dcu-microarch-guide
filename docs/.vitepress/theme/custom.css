@@ -1,11 +1,58 @@
-/* Modern minimalist typography & completed vs TODO chapter indicators */
+/* Modern minimalist typography, crisp hierarchy & completed vs TODO chapter indicators */
 :root {
   --vp-c-brand-1: #3b82f6;
   --vp-c-brand-2: #2563eb;
   --vp-c-brand-3: #1d4ed8;
 }
 
-/* Completed chapter indicator: subtle emerald dot */
+/* Prevent sidebar scrollbar from overlapping text */
+.VPSidebar {
+  scrollbar-gutter: stable;
+  padding-right: 20px !important;
+}
+
+.VPSidebar .group + .group {
+  border-top: 1px solid var(--vp-c-divider);
+  padding-top: 12px;
+  margin-top: 10px;
+}
+
+/* Level-0 Group Titles: prominent bold headers */
+.VPSidebarItem.level-0 > .item > .text {
+  font-size: 14.5px !important;
+  font-weight: 700 !important;
+  color: var(--vp-c-text-1) !important;
+  padding: 4px 0;
+}
+
+/* Level-1 Sub-group Titles (e.g. HIP / Triton) */
+.VPSidebarItem.level-1.collapsible > .item > .text {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: var(--vp-c-brand-1) !important;
+}
+
+/* Clear tree indentation & guide lines for nested levels */
+.VPSidebarItem.level-0 > .items {
+  margin-left: 6px;
+  padding-left: 12px;
+  border-left: 1.5px solid var(--vp-c-divider);
+}
+
+.VPSidebarItem.level-1 > .items {
+  margin-left: 6px;
+  padding-left: 12px;
+  border-left: 1.5px dashed var(--vp-c-divider);
+}
+
+/* Compact spacing for leaf links */
+.VPSidebarItem.is-link > .item > a.link .text {
+  font-size: 13px;
+  line-height: 1.45;
+  padding: 4px 0;
+}
+
+/* Completed chapter indicator: solid emerald dot */
 .VPSidebarItem.is-link > .item > a.link .text::before {
   content: "";
   display: inline-block;
@@ -13,7 +60,7 @@
   height: 6px;
   border-radius: 50%;
   background-color: #10b981;
-  margin-right: 8px;
+  margin-right: 7px;
   vertical-align: middle;
   flex-shrink: 0;
 }

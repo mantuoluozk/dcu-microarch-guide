@@ -10,31 +10,31 @@
 
 LSTM 当前时间步依赖：
 
-- 当前输入 \(x_t\)。
-- 上一时间步 Hidden State \(h_{t-1}\)。
-- 上一时间步 Cell State \(c_{t-1}\)。
+- 当前输入 $x_t$。
+- 上一时间步 Hidden State $h_{t-1}$。
+- 上一时间步 Cell State $c_{t-1}$。
 
 主要矩阵计算为：
 
-\[
+
 G_t=x_tW_{ih}^{T}+h_{t-1}W_{hh}^{T}+b
-\]
+
 
 可以拆成两个部分。
 
 **Input Projection**
 
-\[
+
 x_tW_{ih}^{T}
-\]
+
 
 在输入序列已知的情况下，各时间步的这部分矩阵计算不依赖先前的 Hidden State，因此可以提前批量计算。
 
 **Recurrent Projection**
 
-\[
+
 h_{t-1}W_{hh}^{T}
-\]
+
 
 该部分依赖上一时间步的 Hidden State，必须遵循时间递推关系。
 
@@ -42,9 +42,9 @@ h_{t-1}W_{hh}^{T}
 
 对于 Hidden Size = H 的 LSTM：
 
-\[
+
 G_t\in \mathbb{R}^{4H}
-\]
+
 
 它包含四个 Gate 的输入：
 
@@ -55,31 +55,31 @@ G_t\in \mathbb{R}^{4H}
 
 随后计算：
 
-\[
+
 i_t=\sigma(g_i)
-\]
 
-\[
+
+
 f_t=\sigma(g_f)
-\]
 
-\[
+
+
 \tilde c_t=\tanh(g_c)
-\]
 
-\[
+
+
 o_t=\sigma(g_o)
-\]
 
-\[
+
+
 c_t=f_t\odot c_{t-1}+i_t\odot\tilde c_t
-\]
 
-\[
+
+
 h_t=o_t\odot\tanh(c_t)
-\]
 
-这里的 \(\odot\) 表示逐元素乘法。
+
+这里的 $\odot$ 表示逐元素乘法。
 
 以 H128 为例：
 
@@ -90,9 +90,9 @@ h_t=o_t\odot\tanh(c_t)
 
 因此，Recurrent Projection 可以表示为：
 
-\[
+
 [1,128]\times[128,512]\rightarrow[1,512]
-\]
+
 
 具体矩阵是否带转置，应按照代码中的权重存储方式确认。
 
@@ -128,9 +128,9 @@ adaptive_lstm_mmac_packed_kernel(...)
 
 在 Wave64 模型下：
 
-\[
+
 256=4\times64
-\]
+
 
 所以一个 Block 包含四个 Wavefront。
 
@@ -156,11 +156,11 @@ Wave 3 → Tile 7：112～127
 
 因此需要通过线程索引和输出地址计算，明确以下映射：
 
-\[
+
 (\text{Block},\text{Wave},\text{Lane})
 \rightarrow
 (\text{Batch},\text{Gate},\text{Output Tile})
-\]
+
 
 这一步应该成为后续分析该 Kernel 的重点。
 

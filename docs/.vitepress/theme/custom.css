@@ -1,0 +1,46 @@
+/* Modern minimalist typography & completed vs TODO chapter indicators */
+:root {
+  --vp-c-brand-1: #3b82f6;
+  --vp-c-brand-2: #2563eb;
+  --vp-c-brand-3: #1d4ed8;
+}
+
+/* Completed chapter indicator: subtle emerald dot */
+.VPSidebarItem.is-link > .item > a.link .text::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #10b981;
+  margin-right: 8px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+/* Upcoming / TODO chapter indicator: muted text + amber hollow dot */
+.VPSidebarItem.is-link > .item > a.link[href*="auto-analysis"] .text,
+.VPSidebarItem.is-link > .item > a.link[href*="03-isa-and-sim"] .text,
+.VPSidebarItem.is-link > .item > a.link[href*="lab10-triton-gemm-tuning"] .text,
+.VPSidebarItem.is-link > .item > a.link[href*="framework-profiling"] .text,
+.VPSidebarItem.is-link > .item > a.link[href*="gemm-and-moe"] .text,
+.VPSidebarItem.is-link > .item > a.link[href*="attention-kvcache"] .text {
+  color: var(--vp-c-text-3);
+}
+
+.VPSidebarItem.is-link > .item > a.link[href*="auto-analysis"] .text::before,
+.VPSidebarItem.is-link > .item > a.link[href*="03-isa-and-sim"] .text::before,
+.VPSidebarItem.is-link > .item > a.link[href*="lab10-triton-gemm-tuning"] .text::before,
+.VPSidebarItem.is-link > .item > a.link[href*="framework-profiling"] .text::before,
+.VPSidebarItem.is-link > .item > a.link[href*="gemm-and-moe"] .text::before,
+.VPSidebarItem.is-link > .item > a.link[href*="attention-kvcache"] .text::before {
+  background-color: transparent;
+  border: 1.5px solid #f59e0b;
+}
+
+/* Clean mathjax SVG spacing */
+mjx-container {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.15rem 0;
+}

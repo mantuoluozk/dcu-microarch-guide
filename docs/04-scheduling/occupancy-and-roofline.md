@@ -1,8 +1,9 @@
 # 第 4 章：Kernel 生命周期、Occupancy 与 Roofline 模型
 
-!!! tip "小白速读：先用大白话理解这一章"
-    **Occupancy（占用率）** 就是车间里同时排了多少个 64 人方阵在轮流干活——方阵越多，A 方阵等大仓库送货时，B 方阵就能立刻顶上干活，把等待时间藏起来。但也不是越多越好：如果每个方阵占太多草稿纸（VGPR）或黑板（LDS），车间就挤不下其他方阵了。而 **Roofline 模型** 就像一把尺子，帮我们一眼判断算子到底是“算得不够快（Compute-bound）”还是“货拉得不够快（Memory-bound）”。
+::: tip 小白速读：先用大白话理解这一章
+**Occupancy（占用率）** 就是车间里同时排了多少个 64 人方阵在轮流干活——方阵越多，A 方阵等大仓库送货时，B 方阵就能立刻顶上干活，把等待时间藏起来。但也不是越多越好：如果每个方阵占太多草稿纸（VGPR）或黑板（LDS），车间就挤不下其他方阵了。而 **Roofline 模型** 就像一把尺子，帮我们一眼判断算子到底是“算得不够快（Compute-bound）”还是“货拉得不够快（Memory-bound）”。
 
+:::
 ## 五、Kernel 从启动到执行完成的完整过程
 
 下面把前面所有硬件组件串起来。
@@ -117,9 +118,9 @@ Occupancy 用于衡量 GPU 上可驻留的 Wavefront 数量与硬件上限之间
 
 例如某个 CU 最多可以驻留 40 个 Wavefront，而当前 Kernel 实际驻留 20 个：
 
-\[
+
 Occupancy=20/40=50\%
-\]
+
 
 这是一个简化示例。
 
@@ -138,7 +139,7 @@ Occupancy=20/40=50\%
 
 可以近似理解为：
 
-\[
+
 N_{\text{Blocks}}
 \leq
 \min
@@ -149,7 +150,7 @@ N_{\text{SGPR}},
 N_{\text{Wave}},
 N_{\text{BlockSlots}}
 \right)
-\]
+
 
 实际资源分配是按**硬件分配粒度（Allocation Granularity）**进行的，而不是连续线性分配。例如在典型的 GCN/DCU 架构上：
 
@@ -211,15 +212,15 @@ N_{\text{BlockSlots}}
 
 - **计算强度（Arithmetic Intensity, AI）：**
 
-\[
+
 \text{AI} = \frac{\text{总浮点运算次数 (FLOPs)}}{\text{从 HBM 读写的总字节数 (Bytes)}}
-\]
+
 
 - **硬件拐点（Ridge Point）：**
 
-\[
+
 \text{Ridge Point} = \frac{\text{目标精度峰值算力 (TFLOPS)}}{\text{HBM 实测峰值带宽 (TB/s)}}
-\]
+
 
 - 当算子的 $\text{AI} < \text{Ridge Point}$ 时，算子处于 **Memory-bound（访存受限）** 区间，理论上限由 $\text{AI} \times \text{HBM 带宽}$ 决定（例如向量加法、RMSNorm、Batch=1 的 Decode GEMV / LSTM 单步）；此时优化的核心是合并访存、向量化加载、算子融合（减少写回再读出）以及提高数据复用。
 - 当算子的 $\text{AI} > \text{Ridge Point}$ 时，算子处于 **Compute-bound（算力受限）** 区间，理论上限由峰值算力决定（例如大矩阵 GEMM、Prefill Attention）；此时优化的核心是提高 MMAC 利用率、指令流水（`s_waitcnt` 重叠）、消除 LDS Bank Conflict 和避免寄存器 Spill。

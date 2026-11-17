@@ -9,9 +9,9 @@
 
 DCU 片上的 LDS（64 KB/Block）通常划分为 **32 个 Bank，每个 Bank 宽度为 4 字节（32-bit）**：
 
-\[
+
 \text{Bank ID} = \left\lfloor \frac{\text{Byte Address}}{4} \right\rfloor \bmod 32
-\]
+
 
 对于 `__shared__ float tile[32][32]`：
 

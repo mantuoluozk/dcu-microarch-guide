@@ -1,5 +1,8 @@
 # Build & site artifacts
 site/
+node_modules/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
 __pycache__/
 *.pyc
 *.pyo

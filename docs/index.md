@@ -8,7 +8,7 @@
 ## 全站章节导航
 
 ### 零、研究专题实施方案
-- [面向下一代海光 DCU 的微架构研究与大模型推理优化专题实施方案](00-plan/research-plan.md) — 项目定位、双主线技术路线、2026~2027 里程碑及四大研究方向（含参考图解与 `hcu builtin` 附件）。
+- [面向下一代海光 DCU 的微架构研究与大模型推理优化专题实施方案](00-plan/research-plan.md) — 项目定位、双主线技术路线、2026~2027 里程碑及四大研究方向。
 
 ### 一、微架构原理篇
 1. [1.1 整体架构、执行模型与软件栈链路](01-overview/software-stack.md) — Grid/Block/Wave64/CU 映射与 PyTorch → Triton/`lightop` → HIP/DTK → HSA 全链路（含图文笔记图解）。

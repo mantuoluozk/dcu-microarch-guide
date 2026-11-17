@@ -87,10 +87,10 @@ DCU 微架构学习与分析 → GPU Kernel 编程与性能建模 → 关键算�
 
 ---
 
-## 四、配套参考资料与附件
+## 四、配套参考资料
 
-- 参考项目：[Hello-ROCm：解密 AI 加速器（decode-ai-accelerator）](https://datawhalechina.github.io/hello-rocm/zh/03-infra/decode-ai-accelerator)
-- 附件下载：[hcu builtin汇总 - 260425.xlsx](../assets/files/hcu%20builtin汇总%20-%20260425.xlsx)
+- 开源参考项目：[Hello-ROCm：解密 AI 加速器（decode-ai-accelerator）](https://datawhalechina.github.io/hello-rocm/zh/03-infra/decode-ai-accelerator)，用于对照学习 ROCm 软件栈追踪、Occupancy 分析与底层硬件执行链路。
+- 内部技术积累：持续整理海光 DCU 内置指令（builtin / MMAC 原语）、硬件 PMC 指标说明与典型 Kernel 汇编分析案例，结合实验逐步沉淀为本站在册教程。
 
 ---
 

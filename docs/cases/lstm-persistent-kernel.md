@@ -186,6 +186,8 @@ __shared__ float recur_h[...];
 
 ### 7.6 Persistent Kernel 如何工作？
 
+![LSTM Persistent MMAC Kernel 与硬件协同图解（图文笔记图 2）](../assets/images/dcu_note_fig2.png)
+
 传统分步实现可以是：
 
 ```text

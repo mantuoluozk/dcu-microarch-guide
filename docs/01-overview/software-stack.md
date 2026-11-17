@@ -11,6 +11,8 @@
 
 ### 1.1 软件执行模型
 
+![从软件执行层级到 CU 的计算资源映射（图文笔记图 1）](../assets/images/dcu_note_fig1.png)
+
 在 HIP 编程中，一次 Kernel 启动会形成一个 Grid，Grid 包含多个 Block（Workgroup），每个 Block 内包含多个 Thread（Work-item）。
 
 以 Wavefront Size 为 64、Block Size 为 256 为例：

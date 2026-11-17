@@ -1,27 +1,94 @@
 # 实验 2：LDS Bank Conflict 与 Padding / XOR Swizzle 消除
 
 > **源码：** [03_lds_bank_conflict.hip](https://github.com/mantuoluozk/dcu-microarch-guide/blob/main/experiments/03_lds_bank_conflict.hip)  
-> **关联章节：** [第 3 章：LDS Bank Conflict](../03-memory/memory-hierarchy.md)
+> **关联理论：** [第 3 章：LDS 与 Bank Conflict](../03-memory/memory-hierarchy.md)
 
 ---
 
-## 1. 实验设计
+## 1. 实验原理：32-Bank 映射公式与冲突产生机制
 
-在 `__shared__ float tile[32][32]`（以及 Padding 版 `tile[32][33]`）上循环执行 **2048 轮** LDS 读-改-写（彻底屏蔽 HBM 干扰），对比：
-- `Mode 0`：行访问 `tile[r][tx]`（相邻 Lane 落入不同 Bank，0 冲突）
-- `Mode 1`：列访问 `tile[tx][r]`（相邻 Lane 撞在同一 Bank，32-way 冲突）
-- `Mode 2`：列访问 + Padding `tile_pad[32][33]`（步长 33 与 32 互质）
-- `Mode 3`：列访问 + XOR Swizzle `tile_std[tx][r ^ tx]`（零额外 LDS 占用）
+DCU 片上的 LDS（64 KB/Block）通常划分为 **32 个 Bank，每个 Bank 宽度为 4 字节（32-bit）**：
+
+\[
+\text{Bank ID} = \left\lfloor \frac{\text{Byte Address}}{4} \right\rfloor \bmod 32
+\]
+
+对于 `__shared__ float tile[32][32]`：
+- **行访问 `tile[r][tx]`：** 当 `tx = 0..31` 时，字节偏移依次增加 4 字节，恰好落在 Bank `0..31`，**0 冲突**。
+- **列访问 `tile[tx][r]`：** 相邻 `tx` 之间的元素间隔为 `32` 个 `float`（128 字节），即 $(x + 32) \bmod 32 = x \bmod 32$，导致 32 个线程全部撞在同一个 Bank `r` 上，触发 **32-way Bank Conflict**。
+- **Padding 消除（`[32][33]`）：** 把行宽改为 33，列步长变为 33，$\gcd(33, 32) = 1$，32 个线程错开落入全部 32 个 Bank（代价是多占 ~3% LDS）。
+- **XOR Swizzle 消除（`tile[tx][r ^ tx]`）：** 对同一行内任意固定 `r`，当 `tx` 遍历 `0..31` 时，`r ^ tx` 同样是 `0..31` 的双射排列！**不浪费 1 字节 LDS 容量，完美清零冲突**。
+
+---
+
+## 2. 完整源码与逐段解读
+
+```cpp title="experiments/03_lds_bank_conflict.hip"
+#include "common.h"
+
+constexpr int TILE = 32;
+constexpr int LDS_ITERS = 2048;
+
+template <int MODE>
+__global__ void lds_bank_conflict_kernel(float* __restrict__ out) {
+    // MODE 0: 行访问（无冲突）
+    // MODE 1: 列访问（32-way Bank Conflict）
+    // MODE 2: 列访问 + Padding [32][33]（无冲突，多占 128B LDS）
+    // MODE 3: 列访问 + XOR Swizzle [tx][r ^ tx]（无冲突，零额外 LDS 开销）
+    __shared__ float tile_std[TILE][TILE];
+    __shared__ float tile_pad[TILE][TILE + 1];
+
+    int tx = threadIdx.x % TILE; // 0..31
+    int ty = threadIdx.x / TILE; // 0..31 (Block=1024)
+
+    if constexpr (MODE == 2) {
+        tile_pad[ty][tx] = static_cast<float>(threadIdx.x) * 0.001f;
+    } else {
+        tile_std[ty][tx] = static_cast<float>(threadIdx.x) * 0.001f;
+    }
+    __syncthreads();
+
+    float acc = 0.0f;
+    // 通过数据依赖链与写回防止编译器把 LDS 循环优化掉
+    for (int i = 0; i < LDS_ITERS; ++i) {
+        int r = (ty + i) & (TILE - 1);
+        float v = 0.0f;
+        if constexpr (MODE == 0) {
+            v = tile_std[r][tx];
+            tile_std[r][tx] = v + 1e-6f;
+        } else if constexpr (MODE == 1) {
+            v = tile_std[tx][r];
+            tile_std[tx][r] = v + 1e-6f;
+        } else if constexpr (MODE == 2) {
+            v = tile_pad[tx][r];
+            tile_pad[tx][r] = v + 1e-6f;
+        } else if constexpr (MODE == 3) {
+            v = tile_std[tx][r ^ tx];
+            tile_std[tx][r ^ tx] = v + 1e-6f;
+        }
+        acc += v;
+    }
+
+    int gid = blockIdx.x * blockDim.x + threadIdx.x;
+    out[gid] = acc;
+}
+```
+
+### 关键代码设计细节
+- **为什么在 Kernel 内循环 `2048` 次 LDS 读-改-写？** 单次 LDS 访问只有几十个周期，如果只访问一次，耗时全被 Kernel Launch 开销掩盖。循环 2048 次且不访问 HBM，可以把**纯粹的 LDS 冲突代价**放大到毫秒级。
+- **为什么需要 `tile_std[...] = v + 1e-6f`？** 如果只读不写，编译器可能把循环不变量外提；读-改-写形成真依赖链，迫使硬件每一轮都真实发射 `ds_read_b32` 和 `ds_write_b32`。
+- **为什么这里触发了编译器警告？** 本 Kernel 以 `block_size = 1024` 启动但未写 `__launch_bounds__(1024)`，运行时提示 `Launch params (1024, 1, 1) are larger than launch bounds (256)`，实际工程中应显式标注 `__launch_bounds__`。
+
+---
+
+## 3. 复现命令与 BW100 实测数据
 
 ```bash
-./03_lds_bank_conflict
+cd /exp/dcu_microarch_exp
+make 03_lds_bank_conflict && ./03_lds_bank_conflict
 hipprof --pmc --pmc-type 3 -o prof_out/exp03 ./03_lds_bank_conflict
 python3 parse_hipprof_pmc.py prof_out/exp03.csv
 ```
-
----
-
-## 2. BW100 实测性能与 PMC 硬件计数器
 
 | LDS 访问模式 | LDS 占用 | `SQ_INSTS_LDS` | **`SQ_LDS_BANK_CONFLICT`** | **`SQ_WAIT_INST_LDS`** | 平均耗时 (ms) | 相对无冲突 |
 |---|---:|---:|---:|---:|---:|---:|
@@ -32,8 +99,7 @@ python3 parse_hipprof_pmc.py prof_out/exp03.csv
 
 ---
 
-## 3. 核心结论
+## 4. 现象拆解与工程结论
 
-1. 32-way 冲突下，4 个模式执行了完全相同的 `1678 万` 次 LDS 指令，但 Mode 1 触发了 **10.4 亿次 `SQ_LDS_BANK_CONFLICT`**，直接让 LDS 等待周期暴涨 **18.3 倍**（29.4 亿周期）。
-2. **Padding vs XOR Swizzle：** Padding 多占用了 `128 B` LDS；而 **XOR Swizzle 在零额外 LDS 占用（`4096 B`）下把 `SQ_LDS_BANK_CONFLICT` 直接清零**，仅消耗极轻量的地址异或指令，是 FlashAttention 和高性能 GEMM 的首选。
-3. 编译提示观察：未加 `__launch_bounds__(1024)` 时，HIP 编译器会提示 `Launch params (1024, 1, 1) are larger than launch bounds (256)`，提醒开发者显式标注 `__launch_bounds__`。
+1. **10.4 亿次硬件冲突铁证：** Mode 1 执行了完全相同的 `1678 万` 次 LDS 指令，但 `SQ_LDS_BANK_CONFLICT` 暴涨至 **10.4 亿次**，`SQ_WAIT_INST_LDS` 等待周期翻了 **18.3 倍**（29.4 亿周期）。
+2. **Swizzle 是最优解：** Padding 多占用了 `128 B` LDS，在 LDS 紧张的算子中可能压低 Occupancy；而 **XOR Swizzle 在零额外 LDS 开销（`4096 B`）下完美清零冲突**，应作为矩阵转置、GEMM 与 FlashAttention 共享内存布局的首选方案。

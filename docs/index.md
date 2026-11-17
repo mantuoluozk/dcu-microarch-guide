@@ -25,6 +25,8 @@
 - [实验 5：Wavefront Shuffle 规约 vs LDS 规约](labs/lab05-wave-shuffle-reduction.md)（`__shfl_down` 省去 8 次 Barrier）
 - [实验 6：Memory-bound 算子融合（PyTorch vs `lightop` vs Triton RMSNorm）](labs/lab06-triton-lightop-rmsnorm.md)（融合提速 `19.21x`）
 - [实验 7：Triton GEMM vs `rocBLAS` 与 `hipprof` PMC 根因破案](labs/lab07-triton-gemm-vs-rocblas.md)（抓出 `96B` Spill 与 `9900 万` 周期 LDS Wait）
+- [实验 8：用“寻宝游戏”测出 L1 / L2 / HBM 真实延迟阶梯](labs/lab08-memory-latency-ladder.md)（实测 Vector L1 `16 KB` / `57 cycles` → L2 `216 cycles` → HBM `407 cycles`）
+- [实验 9：用 HCU Builtin 直呼 MMAC 矩阵引擎](labs/lab09-mmac-builtin-and-valu.md)（实测 `v_mmac_f32_16x16x16_f16` `333.49 TFLOPS` vs VALU `20.21 TFLOPS`，单指令延迟 `10.02 cycles`）
 
 ### 三、算子案例与后续路线
 - [案例 1：LSTM Persistent MMAC Kernel 硬件协同拆解](cases/lstm-persistent-kernel.md)

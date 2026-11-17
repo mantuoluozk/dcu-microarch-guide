@@ -14,6 +14,8 @@
 - [x] **实验 5：Wavefront Shuffle 规约 vs LDS 规约**：[lab05-wave-shuffle-reduction.md](labs/lab05-wave-shuffle-reduction.md)
 - [x] **实验 6：PyTorch vs `lightop` vs Triton Fused RMSNorm + ISA 剖析**：[lab06-triton-lightop-rmsnorm.md](labs/lab06-triton-lightop-rmsnorm.md)
 - [x] **实验 7：Triton GEMM vs `rocBLAS` 与 `hipprof` PMC 根因破案**：[lab07-triton-gemm-vs-rocblas.md](labs/lab07-triton-gemm-vs-rocblas.md)
+- [x] **实验 8：BW100 存储延迟阶梯（L1 `16KB` / L2 / HBM Pointer-Chasing）**：[lab08-memory-latency-ladder.md](labs/lab08-memory-latency-ladder.md)
+- [x] **实验 9：HCU Builtin MMAC 峰值（`333.49 TFLOPS`）与 VALU 对比**：[lab09-mmac-builtin-and-valu.md](labs/lab09-mmac-builtin-and-valu.md)
 
 ---
 

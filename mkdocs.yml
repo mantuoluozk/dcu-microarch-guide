@@ -63,6 +63,8 @@ nav:
           - 实验 3：SIMT 分支发散与 If-Conversion: labs/lab03-branch-divergence.md
           - 实验 4：Occupancy 悬崖与 ILP 延迟隐藏: labs/lab04-occupancy-ilp.md
           - 实验 5：Wave Shuffle 规约 vs LDS 规约: labs/lab05-wave-shuffle-reduction.md
+          - 实验 8：存储延迟阶梯（L1 / L2 / HBM）: labs/lab08-memory-latency-ladder.md
+          - 实验 9：HCU Builtin MMAC 与 VALU 峰值: labs/lab09-mmac-builtin-and-valu.md
       - Triton / lightop 高级算子:
           - 实验 6：融合 RMSNorm 与 ISA 剖析: labs/lab06-triton-lightop-rmsnorm.md
           - 实验 7：Triton GEMM vs rocBLAS 与 PMC 破案: labs/lab07-triton-gemm-vs-rocblas.md

@@ -12,6 +12,7 @@
 如果还是派 100 个线程一起读，GPU 调度器会把等待时间藏起来；如果只派 1 个线程顺序读 `a[0], a[1], a[2]...`，硬件预取器又会提前帮你把下一个数据偷渡进缓存。
 
 于是我们用了一个经典技巧——**Pointer-Chasing（寻宝接力赛）**：
+
 - 在数组里随机连成一个大环：`buf[0]` 里存着下一个要去的下标，比如 `48`；去了 `buf[48]` 才看到下一张纸条写着 `12`……
 - 每次循环只做一件事：`idx = next_idx[idx]`。
 - 因为**不知道下一张纸条写着啥，硬件绝对无法提前预取**，只能老老实实等当前这次访存从内存里返回，才能发起下一次！
@@ -87,6 +88,26 @@ cd /exp/dcu_microarch_exp
 hipcc -O3 -std=c++17 --offload-arch=gfx936 07_memory_latency_ladder.hip -o 07_memory_latency_ladder
 ./07_memory_latency_ladder
 ```
+
+### 原始终端输出
+
+```text
+$ ./07_memory_latency_ladder
+=== Exp 8: Memory Latency Ladder (Pointer-Chasing, BW100 @ 1.30 GHz) ===
+  LDS (16 KB)        :    64.1 cycles ( 49.28 ns)
+  Working Set     4 KB :    57.1 cycles ( 43.89 ns)
+  Working Set    16 KB :    57.1 cycles ( 43.91 ns)
+  Working Set    32 KB :   216.4 cycles (166.46 ns)
+  Working Set    64 KB :   208.4 cycles (160.29 ns)
+  Working Set   256 KB :   216.4 cycles (166.49 ns)
+  Working Set  1024 KB :   415.5 cycles (319.64 ns)
+  Working Set  4096 KB :   417.9 cycles (321.49 ns)
+  Working Set  8192 KB :   407.1 cycles (313.13 ns)
+  Working Set 16384 KB :   407.4 cycles (313.40 ns)
+  Working Set 65536 KB :   406.7 cycles (312.83 ns)
+```
+
+### 结构化汇总表
 
 | 测试区域 / 工作集大小 | 实测平均延迟 (Cycles) | 换算绝对时间 (ns @ 1.30 GHz) | 所处存储层级判断 |
 |---|---:|---:|---|

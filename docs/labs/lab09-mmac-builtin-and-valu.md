@@ -8,10 +8,12 @@
 ## 1. 小白也能懂的原理：普通“算盘” vs 矩阵“印钞机”
 
 GPU 里有两种截然不同的算术单元：
+
 - **VALU（向量算术单元）：** 像每个人手里拿一把算盘，一条指令让 64 个线程各自算一次 `a * b + c`（FMA）。
 - **MMAC（矩阵乘加引擎）：** 像一台专门印矩阵的“大型印钞机”，通过海光原生的 **`__builtin_hcu_mmac_f32_16x16x16_f16`** 内置指令，让整个 Wave64（64 个线程）手拉手协作，**一条指令直接算完一个 `16 × 16 × 16` 的半精度矩阵乘法并累加到 FP32 结果中**（共 $2 \times 16 \times 16 \times 16 = \mathbf{8192\text{ FLOPs}}$）！
 
 本实验直接调用海光 `hcu builtin` 接口，在 BW100 上实测：
+
 1. **VALU FP32 的极限算力**是多少 TFLOPS？
 2. **MMAC `16×16×16` FP16 的极限算力**是多少 TFLOPS？
 3. **单条 MMAC 指令的依赖延迟**是多少个时钟周期？
@@ -87,6 +89,7 @@ __global__ void mmac_fp16_latency_kernel(float* __restrict__ out,
 
 ### 为什么每个 Lane 传入 `half4_t`（4 个 FP16），返回 `float4_t`（4 个 FP32）？
 算一笔账就懂了：
+
 - 输出矩阵大小是 $16 \times 16 = 256$ 个 FP32 元素；
 - 一个 Wave64 有 64 个 Lane，正好 $256 \div 64 = \mathbf{4}$ 个 FP32/Lane（即 `float4_t`）！
 - 输入矩阵 $A$（$16 \times 16$）和 $B$（$16 \times 16$）各有 256 个 FP16 元素，分摊到 64 个 Lane，正好也是每人拿 $256 \div 64 = \mathbf{4}$ 个 FP16（即 `half4_t`）！
@@ -100,6 +103,18 @@ cd /exp/dcu_microarch_exp
 hipcc -O3 -std=c++17 --offload-arch=gfx936 08_mmac_builtin_bench.hip -o 08_mmac_builtin_bench
 ./08_mmac_builtin_bench
 ```
+
+### 原始终端输出
+
+```text
+$ ./08_mmac_builtin_bench
+=== Exp 9: VALU vs HCU Builtin MMAC Peak & Latency (BW100, CU=64) ===
+  VALU FP32 Peak   :   0.8499 ms |   20.21 TFLOPS
+  MMAC 16x16x16 FP16:   3.2970 ms |  333.49 TFLOPS (16.50x vs VALU FP32)
+  MMAC 16x16x16 Dependent Latency : 10.02 cycles / instruction
+```
+
+### 结构化汇总表
 
 ### BW100 实测结果
 
@@ -118,6 +133,7 @@ hipcc -O3 -std=c++17 --offload-arch=gfx936 08_mmac_builtin_bench.hip -o 08_mmac_
    v_pk_fma_f32 v[1:2], v[1:2], v[9:10], v[11:12]
    ```
    BW100（`gfx936`）支持 **Packed FP32 FMA**（一条指令同时算 2 个 FP32 FMA），因此实测 VALU FP32 峰值冲到了 **`20.21 TFLOPS`**！
+
 2. **MMAC 直接映射为原生矩阵指令：**
    ```asm
    v_mmac_f32_16x16x16_f16 v[1:4], v[5:6], v[7:8], v[1:4]

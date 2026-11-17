@@ -8,6 +8,7 @@
 ## 1. 实验原理：从 `tl.dot` 到硬件矩阵指令与 L2 Swizzle
 
 在大矩阵乘 `C = A × B`（`4096 × 4096 × 4096` FP16，总计算量 `137.44 GFLOPs`）中，有两个关键优化直接决定算力上限：
+
 1. **L2 Cache 友好的 Group Ordering（`GROUP_M = 8`）：** 如果按普通行主序派发 Block，同一批执行的 Block 会访问同一行 `A` 却把 `B` 扫穿整个 8 MB L2；按 `GROUP_M = 8` 分组后，相邻 Block 在 $M$ 和 $N$ 方向同时复用 `A` 和 `B` 的 Tile，大幅提升 L2 命中率。
 2. **Software Pipelining（`num_stages`）与资源权衡：** `num_stages >= 2` 会在 LDS 中开辟多级缓冲做计算/访存重叠，但也会成倍增加 LDS 占用和 VGPR 压力，可能反过来压低 Occupancy 甚至触发寄存器 Spill。
 
@@ -67,6 +68,38 @@ python3 advanced/08_triton_gemm_mmac.py
 hipprof --pmc --pmc-type 3 -o prof_out/exp08 python3 advanced/08_triton_gemm_mmac.py
 python3 parse_hipprof_pmc.py prof_out/exp08.csv
 ```
+
+### 原始终端输出
+
+```text
+$ python3 advanced/08_triton_gemm_mmac.py
+=== Exp 8: Triton GEMM vs torch.matmul (4096x4096x4096, FP16) ===
+  torch.matmul (rocBLAS/hipBLAS) :   0.535 ms | 256.80 TFLOPS
+
+  BM=128, BN=128, BK=32, warps=4, stages=1 |   1.416 ms |  97.08 TFLOPS | diff=0.000 | LDS=8704B | vgpr=143, sgpr=27, matrix_ops=32, s_waitcnt=27
+  BM=128, BN=128, BK=32, warps=4, stages=2 |   1.500 ms |  91.61 TFLOPS | diff=0.000 | LDS=16384B | vgpr=160, sgpr=36, matrix_ops=64, s_waitcnt=32
+  BM=128, BN=128, BK=64, warps=8, stages=2 |   2.465 ms |  55.76 TFLOPS | diff=0.000 | LDS=32768B | vgpr=128, sgpr=44, matrix_ops=64, s_waitcnt=56
+  BM=128, BN=256, BK=32, warps=8, stages=2 |   2.566 ms |  53.56 TFLOPS | diff=0.000 | LDS=24576B | vgpr=128, sgpr=44, matrix_ops=64, s_waitcnt=65
+```
+
+```text
+$ python3 parse_hipprof_pmc.py prof_out/exp08.csv   # 节选 rocBLAS 与 Triton 关键对比
+Kernel: Cijk_Ailk_Bljk_HBH_MT256x256x16_SE_AMAS3_BW_DTL0_BL1_DRB16_ALT_KM... (calls=41)
+  Grid=131072 | Block=512 | LDS=65536B | Scratch=0B | VGPR=212 (Accum=0) | SGPR=112
+  Avg Kernel Time      :     530.78 us | GRBM_GUI_ACTIVE = 653,439
+  Insts (VALU/LDS/Rd/Wr): 17,670,144 / 4,194,304 / 1,048,576 / 262,144
+  SQ_LDS_BANK_CONFLICT : 8,388,608 | SQ_WAIT_INST_LDS = 3,934,304
+  L2 (TCC) Hit / Miss  : 11,161,361 / 2,479,638 (Hit Rate = 81.82%)
+
+Kernel: gemm_kernel (calls=164)
+  Grid=262144 | Block=512 | LDS=24576B | Scratch=96B | VGPR=128 (Accum=0) | SGPR=48
+  Avg Kernel Time      :    2556.83 us | GRBM_GUI_ACTIVE = 3,341,603
+  Insts (VALU/LDS/Rd/Wr): 42,508,288 / 21,266,432 / 8,429,568 / 126,976
+  SQ_LDS_BANK_CONFLICT : 34,078,720 | SQ_WAIT_INST_LDS = 99,050,034
+  L2 (TCC) Hit / Miss  : 28,551,829 / 2,765,341 (Hit Rate = 91.17%)
+```
+
+### 结构化汇总表
 
 | 实现 / 配置 | 耗时 (ms) | 算力 (TFLOPS) | LDS (B) | VGPR / SGPR | `matrix_ops` | `s_waitcnt` |
 |---|---:|---:|---:|---:|---:|---:|

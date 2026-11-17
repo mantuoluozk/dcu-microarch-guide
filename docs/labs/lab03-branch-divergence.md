@@ -8,6 +8,7 @@
 ## 1. 实验原理：硬件如何处理 Wavefront 内的 `if / else`？
 
 Wave64 中 64 个 Lane 共享一条指令流（PC）：
+
 - **Wave-uniform 分支：** 全 Wave 所有 Lane 走相同分支，走标量比较 `SCC` + `s_cbranch_scc`，未命中路径直接跳过。
 - **Lane-divergent 分支：** 同一个 Wave 内部分 Lane 走 `if`、另一部分走 `else`。硬件通过 `VCC` 更新 64-bit `EXEC` 掩码，**先执行 `if` 路径，再翻转 `EXEC` 执行 `else` 路径**，形成串行化开销。
 - **编译器的 Predicated If-Conversion 优化：** 当 `if / else` 分支体极短（如只有 1~2 条指令）时，编译器往往不生成跳转指令，而是**两条路径都计算**，再用 `v_cndmask_b32` 根据 `VCC` 选出最终值。
@@ -75,6 +76,22 @@ __global__ void branch_divergence_kernel(const float* __restrict__ in,
 cd /exp/dcu_microarch_exp
 make 04_branch_divergence && ./04_branch_divergence
 ```
+
+### 原始终端输出
+
+```text
+$ ./04_branch_divergence
+=== Exp 4: SIMT Branch Divergence & EXEC Mask (4096 iters) ===
+  0. No branch (Baseline)                    :   1.6253 ms
+  1. Wave-uniform branch (SCC scalar)        :   4.0450 ms
+  2. 2-way Lane-divergent (EXEC serialized)  :   4.0451 ms
+  3. 4-way Lane-divergent (EXEC serialized)  :  11.2303 ms
+  Wave-uniform overhead vs Baseline         : 2.49x
+  2-way divergence slowdown vs Uniform      : 1.00x
+  4-way divergence slowdown vs Uniform      : 2.78x
+```
+
+### 结构化汇总表
 
 | 分支模式 | 平均耗时 (ms) | 相对 Baseline 倍率 |
 |---|---:|---:|

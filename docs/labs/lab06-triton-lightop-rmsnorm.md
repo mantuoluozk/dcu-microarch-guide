@@ -8,6 +8,7 @@
 ## 1. 实验原理：为什么 RMSNorm 的核心是“减少 HBM 往返”？
 
 由实验 1 与实验 7 算出的 BW100 FP16 Roofline 拐点约为 `188.1 FLOPs/Byte`。而 RMSNorm 每个元素只做约 4~5 次浮点运算却要读写 4 字节（FP16 读+写），计算强度仅约 **1.25 FLOPs/Byte**，处于极度 **Memory-bound** 区间：
+
 - **PyTorch 拆解实现：** `mul` → `mean` → `add` → `rsqrt` → `mul` → `mul`，每一步都要把中间结果写回 HBM，再由下一个 Kernel 重新读入。
 - **Triton / `lightop` 融合实现：** 只从 HBM 读 1 次输入 `X` 进 VGPR，在片上寄存器与 Wavefront 内完成平方和规约，再一次性写回输出 `Y`（总 HBM 理论流量仅 `2 × 8192 × 4096 × 2B = 134.2 MB`）。
 
@@ -64,7 +65,41 @@ print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=5))
 
 ---
 
-## 3. BW100 实测性能对比（`8192 × 4096` FP16）
+## 3. 复现命令、原始输出与性能对比
+
+```bash
+cd /exp/dcu_microarch_exp/advanced
+python3 07_triton_fused_rmsnorm.py
+python3 10_lightop_vs_triton_pytorch.py
+```
+
+### 原始终端输出
+
+```text
+$ python3 07_triton_fused_rmsnorm.py
+=== Exp 7: Triton Fused RMSNorm (8192x4096, torch.float16) ===
+  Max diff vs PyTorch   : 0.003906
+  PyTorch Unfused       :   1.9920 ms | Effective BW =   67.38 GB/s
+  Triton Fused          :   0.1038 ms | Effective BW = 1293.03 GB/s
+  Speedup               : 19.19x
+
+[Triton Metadata] KernelMetadata(..., arch='gfx936', backend_name='hip', ..., num_warps=8, ..., shared=32, ..., warp_size=64)
+
+[ISA Summary (amdgcn)] total_lines=436, load_dword=3, s_waitcnt=18, s_barrier=2, permute/dpp=1
+  Full ISA saved to 07_rmsnorm_isa.s
+```
+
+```text
+$ python3 10_lightop_vs_triton_pytorch.py
+=== Exp 10: PyTorch vs Triton vs lightop RMSNorm (8192x4096, torch.float16) ===
+  Max diff (Triton  vs PyTorch): 0.001953
+  Max diff (lightop vs PyTorch): 0.001953
+  PyTorch Unfused         :   1.9925 ms | Effective BW =   67.36 GB/s
+  Triton Fused            :   0.1037 ms | Effective BW = 1293.82 GB/s
+  lightop fused_rms_norm  :   0.1139 ms | Effective BW = 1178.54 GB/s
+```
+
+### 结构化汇总表（`8192 × 4096` FP16）
 
 | 实现方式 | 平均耗时 (ms) | 有效 HBM 带宽 (GB/s) | 加速比 | 底层派发 Kernel / 特征 |
 |---|---:|---:|---:|---|

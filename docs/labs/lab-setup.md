@@ -79,6 +79,35 @@ if __name__ == "__main__":
     profile_pytorch_kernels()
 ```
 
+### 原始终端输出（`09_hygon_ops_and_stack.py`）
+
+```text
+$ python3 advanced/09_hygon_ops_and_stack.py
+=== 1. Software Stack Probe (PyTorch -> HIP/DTK -> HSA) ===
+  torch.__version__ : 2.5.1
+  torch.version.hip : 6.3.26093
+  Device 0          : BW100
+  gcnArchName       : gfx936:sramecc+:xnack-
+  CU count          : 64
+
+  Loaded Runtime Shared Libraries:
+    libMIOpen          -> /opt/dtk-26.04/lib/libMIOpen-recommend.so
+    libMIOpen          -> /opt/dtk-26.04/lib/libMIOpen.so.1.0
+    libhipblas         -> /opt/dtk-26.04/lib/libhipblas.so.2.3
+    libhipblas         -> /opt/dtk-26.04/lib/libhipblaslt.so.0.10
+    libhsa-runtime64   -> /opt/hyhal/lib/libhsa-runtime64.so.1.11.0
+    librccl            -> /opt/dtk-26.04/lib/librccl.so.1.0
+    librocblas         -> /opt/dtk-26.04/lib/librocblas.so.4.3
+
+=== 2. HYGON / ROCm Operator Libraries Probe ===
+  [INSTALLED] triton     | ver=3.1.0 | path=/usr/local/lib/python3.11/site-packages/triton/__init__.py
+  [INSTALLED] lightop    | ver=0.6.0 | path=/usr/local/lib/python3.11/site-packages/lightop/__init__.py
+  [MISSING]   aiter
+  [MISSING]   deep_gemm
+  [INSTALLED] vllm       | ver=0.11.0 | path=/usr/local/lib/python3.11/site-packages/vllm/__init__.py
+  [MISSING]   sglang
+```
+
 ### BW100 容器（`zk-migraphx`）实测输出解读
 
 - **软件栈版本：** `torch 2.5.1`（`torch.version.hip = 6.3.26093`）、`triton 3.1.0`（`triton/backends/hcu/`）、`lightop 0.6.0`、`vllm 0.11.0`。
@@ -180,6 +209,30 @@ int main() {
 }
 ```
 
+### 原始终端输出（`01_device_info_and_isa`）
+
+```text
+$ ./01_device_info_and_isa
+Detected 1 DCU/HIP device(s)
+
+=== Device 0: BW100 ===
+  gcnArchName                : gfx936:sramecc+:xnack-
+  CU count (multiProcessor)  : 64
+  warpSize (Wavefront size)  : 64
+  Max threads / CU           : 2560 (Max Waves/CU = 40)
+  Max threads / Block        : 1024
+  LDS (sharedMemPerBlock)    : 64 KB
+  Regs / Block (32-bit)      : 196608
+  L2 Cache Size              : 8192 KB
+  Global Mem                 : 63.98 GB
+  Memory Bus Width           : 4096-bit
+  Memory Clock Rate          : 1800.00 MHz
+  Core Clock Rate            : 1300.00 MHz
+  Theoretical Peak HBM BW*   : 1843.2 GB/s (DDR approx)
+
+Sample FMA check: c[0]=6.50 (expected 6.50), avg time=0.0229 ms
+```
+
 ### BW100 实测硬件规格表
 
 | 硬件参数 | BW100 实测值 | 微架构与调优意义 |
@@ -205,6 +258,7 @@ make isa    # 使用 hipcc -O3 -save-temps 导出 .s 汇编到 isa_dump/
 ```
 
 在生成的 `.s` 文件中重点检查：
+
 - `.vgpr_count` / `.sgpr_count` / `.lds_size`：静态资源占用。
 - `global_load_dword*` 与 `s_waitcnt vmcnt(k)`：异步加载与等待点。
 - `s_cbranch_scc*` vs `s_and_saveexec_b64` / `v_cndmask_b32`：分支指令形态。

@@ -8,6 +8,7 @@
 ## 1. 实验原理：为什么访问步长与位宽会决定生死？
 
 当 Wavefront（64 个 Lane）执行一条 `global_load` 指令时，硬件内存控制器会把 64 个 Lane 请求的地址按 **Cache Line（常见 64B / 128B）** 合并成尽量少的内存事务：
+
 - **Coalesced（合并访存）：** 相邻 Lane 访问相邻地址，64 个 `float`（256 字节）只需极少数连续 Cache Line 事务即可满足。
 - **Strided（跨步访存）：** 当步长 $S$ 增大时，相邻 Lane 地址间隔变为 $4S$ 字节，64 个请求被迫分散到更多 Cache Line 中，大量搬运回来的相邻字节根本不被当前 Wave 使用，造成**有效带宽雪崩**。
 - **Vectorized（`float4` 128-bit 访存）：** 每个 Lane 一次发射 128-bit（4 个 `float`），在搬运相同总字节数时，访存指令数精确降为 `1/4`，大幅缓解指令发射队列瓶颈。
@@ -116,7 +117,52 @@ python3 parse_hipprof_pmc.py prof_out/exp02.csv
 
 ---
 
-## 4. BW100 实测数据与 `hipprof` PMC 证据
+## 4. BW100 原始输出日志与 PMC 证据
+
+### 原始终端输出
+
+```text
+$ ./02_coalescing_and_vec
+=== Exp 2: Global Memory Coalescing & Vectorization (256MB copy) ===
+  Coalesced float  (32-bit)  :   1.0124 ms |   530.29 GB/s
+  Coalesced float4 (128-bit) :   0.3933 ms |  1364.93 GB/s
+  Strided float (stride=2)   :   1.3159 ms |   408.00 GB/s
+  Strided float (stride=4)   :   2.5414 ms |   211.25 GB/s
+  Strided float (stride=8)   :   5.2079 ms |   103.09 GB/s
+  Strided float (stride=16)  :  10.3145 ms |    52.05 GB/s
+  Strided float (stride=32)  :  15.4136 ms |    34.83 GB/s
+```
+
+```text
+$ python3 parse_hipprof_pmc.py prof_out/exp02.csv
+=== PMC Summary: prof_out/exp02.csv (3 unique kernels) ===
+
+Kernel: _Z20copy_float_coalescedPKfPfi (calls=25)
+  Grid=67108864 | Block=256 | LDS=0B | Scratch=0B | VGPR=4 (Accum=0) | SGPR=16
+  Avg Kernel Time      :    1011.68 us | GRBM_GUI_ACTIVE = 1,330,892
+  Insts (VALU/LDS/Rd/Wr): 10,485,760 / 0 / 1,048,576 / 1,048,576
+  SQ_LDS_BANK_CONFLICT : 0 | SQ_WAIT_INST_LDS = 0
+  L2 (TCC) Hit / Miss  : 195 / 6,291,461 (Hit Rate = 0.00%)
+  TCP_TA_DATA_STALL    : 7,070,939
+
+Kernel: _Z21copy_float4_coalescedPK15HIP_vector_typeIfLj4EEPS0_i (calls=25)
+  Grid=16777216 | Block=256 | LDS=0B | Scratch=0B | VGPR=8 (Accum=0) | SGPR=16
+  Avg Kernel Time      :     391.04 us | GRBM_GUI_ACTIVE = 524,295
+  Insts (VALU/LDS/Rd/Wr): 2,621,440 / 0 / 262,144 / 262,144
+  SQ_LDS_BANK_CONFLICT : 0 | SQ_WAIT_INST_LDS = 0
+  L2 (TCC) Hit / Miss  : 195 / 6,291,461 (Hit Rate = 0.00%)
+  TCP_TA_DATA_STALL    : 10,351,276
+
+Kernel: _Z18copy_float_stridedPKfPfii (calls=125)
+  Grid=67108864 | Block=256 | LDS=0B | Scratch=0B | VGPR=4 (Accum=0) | SGPR=16
+  Avg Kernel Time      :   15422.14 us | GRBM_GUI_ACTIVE = 20,072,775
+  Insts (VALU/LDS/Rd/Wr): 12,582,912 / 0 / 1,048,576 / 1,048,576
+  SQ_LDS_BANK_CONFLICT : 0 | SQ_WAIT_INST_LDS = 0
+  L2 (TCC) Hit / Miss  : 234 / 134,217,736 (Hit Rate = 0.00%)
+  TCP_TA_DATA_STALL    : 519,544,084
+```
+
+### 结构化汇总表
 
 | 访问模式 | 平均耗时 (ms) | 有效带宽 (GB/s) | `SQ_INSTS_VMEM_RD` | `SQ_INSTS_VMEM_WR` | `TCC_MISS` (L2 Miss) | `TCP_TA_DATA_STALL` |
 |---|---:|---:|---:|---:|---:|---:|

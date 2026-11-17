@@ -8,6 +8,7 @@
 ## 1. 实验原理：没有足够 Wavefront 时，CU 会怎样？
 
 一次 HBM 访问延迟高达数百个时钟周期。DCU 隐藏延迟靠两条腿走路：
+
 1. **TLP（线程级并行 / Occupancy）：** Wave 0 等待 HBM 时，CU 调度器立刻切换执行 Wave 1 ~ Wave N。如果因为 VGPR 或 LDS 占用过大，导致每 CU 只能驻留极少数 Wavefront，调度器就会“无 Wave 可切”，只能干等。
 2. **ILP（指令级并行）：** 单个 Wavefront 内部连续发射多条互不依赖的独立加载指令（在 `s_waitcnt` 前一起在途飞行），也能在一定程度上摊薄延迟。
 
@@ -83,6 +84,19 @@ __global__ void high_ilp_kernel(const float* __restrict__ a,
 cd /exp/dcu_microarch_exp
 make 05_occupancy_and_ilp && ./05_occupancy_and_ilp
 ```
+
+### 原始终端输出
+
+```text
+$ ./05_occupancy_and_ilp
+=== Exp 5: Occupancy vs ILP Latency Hiding (CU=64, Block=256) ===
+  LDS= 0 KB | Low-ILP:  8 Blks/CU (32 Waves) ->  0.0386 ms | High-ILP:  8 Blks/CU (32 Waves) ->  0.0484 ms
+  LDS=16 KB | Low-ILP:  4 Blks/CU (16 Waves) ->  0.0491 ms | High-ILP:  4 Blks/CU (16 Waves) ->  0.0501 ms
+  LDS=32 KB | Low-ILP:  2 Blks/CU ( 8 Waves) ->  0.0806 ms | High-ILP:  2 Blks/CU ( 8 Waves) ->  0.0779 ms
+  LDS=48 KB | Low-ILP:  1 Blks/CU ( 4 Waves) ->  0.1045 ms | High-ILP:  1 Blks/CU ( 4 Waves) ->  0.1218 ms
+```
+
+### 结构化汇总表
 
 | 动态 LDS 占用 | 每 CU 驻留 Block 数 | 每 CU 驻留 Wave 数（Occupancy） | `Low-ILP` (ms) | `High-ILP` (ms) |
 |---|---:|---:|---:|---:|

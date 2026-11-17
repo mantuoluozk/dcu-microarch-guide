@@ -169,6 +169,7 @@ Block 完成，释放硬件资源
 
 1. **Wave-uniform 分支（标量分支，零发散惩罚）**：
    如果判断条件对整个 Wavefront 的 64 个 Lane 都相同（例如基于 `blockIdx.x`、Kernel 参数或循环次数 `k < K`），编译器会将其编译为标量比较，结果写入 **SCC（Scalar Condition Code）**，再通过标量跳转指令（如 `s_cbranch_scc0/1`）直接跳过未命中的分支块，完全不浪费执行周期。
+
 2. **Lane-divergent 分支（向量分支，串行化执行）**：
    如果判断条件依赖 `threadIdx.x` 或每个线程各自的数据（例如边界检查 `if (idx < N)`、`if (x > 0)`），编译器会将其编译为向量比较，结果写入 64-bit 的 **VCC（Vector Condition Code）**，随后硬件保存当前 `EXEC` 并用 `VCC` 掩码先执行 `if` 分支；完成后再翻转 `EXEC` 执行 `else` 分支；最后恢复进入 `if` 前的 `EXEC`。
 

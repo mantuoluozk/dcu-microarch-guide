@@ -14,6 +14,7 @@ DCU 片上的 LDS（64 KB/Block）通常划分为 **32 个 Bank，每个 Bank �
 \]
 
 对于 `__shared__ float tile[32][32]`：
+
 - **行访问 `tile[r][tx]`：** 当 `tx = 0..31` 时，字节偏移依次增加 4 字节，恰好落在 Bank `0..31`，**0 冲突**。
 - **列访问 `tile[tx][r]`：** 相邻 `tx` 之间的元素间隔为 `32` 个 `float`（128 字节），即 $(x + 32) \bmod 32 = x \bmod 32$，导致 32 个线程全部撞在同一个 Bank `r` 上，触发 **32-way Bank Conflict**。
 - **Padding 消除（`[32][33]`）：** 把行宽改为 33，列步长变为 33，$\gcd(33, 32) = 1$，32 个线程错开落入全部 32 个 Bank（代价是多占 ~3% LDS）。
@@ -89,6 +90,52 @@ make 03_lds_bank_conflict && ./03_lds_bank_conflict
 hipprof --pmc --pmc-type 3 -o prof_out/exp03 ./03_lds_bank_conflict
 python3 parse_hipprof_pmc.py prof_out/exp03.csv
 ```
+
+### 原始终端输出
+
+```text
+$ ./03_lds_bank_conflict
+Launch params (1024, 1, 1) are larger than launch bounds (256) for kernel _Z24lds_bank_conflict_kernelILi0EEvPf please add __launch_bounds__ to kernel define or use --gpu-max-threads-per-block recompile program ! 
+=== Exp 3: LDS Bank Conflict (32x32 Tile, 2048 LDS r/w iters) ===
+  0. Row-wise (No conflict)              :   0.6578 ms
+  1. Col-wise (32-way Bank Conflict)     :  12.9097 ms
+  2. Col-wise + Padding [32][33]         :   0.6769 ms
+  3. Col-wise + XOR Swizzle [tx][r^tx]   :   0.6751 ms
+  Slowdown (32-way vs No-conflict)      : 19.62x
+  Speedup  (Padding vs Conflict)        : 19.07x
+  Speedup  (Swizzle vs Conflict)        : 19.12x
+```
+
+```text
+$ python3 parse_hipprof_pmc.py prof_out/exp03.csv
+=== PMC Summary: prof_out/exp03.csv (4 unique kernels) ===
+
+Kernel: _Z24lds_bank_conflict_kernelILi0EEvPf (calls=25)
+  Grid=262144 | Block=1024 | LDS=4096B | Scratch=0B | VGPR=24 (Accum=0) | SGPR=16
+  Avg Kernel Time      :     657.67 us | GRBM_GUI_ACTIVE = 870,671
+  Insts (VALU/LDS/Rd/Wr): 41,996,288 / 16,781,312 / 0 / 4,096
+  SQ_LDS_BANK_CONFLICT : 0 | SQ_WAIT_INST_LDS = 160,742,378
+
+Kernel: _Z24lds_bank_conflict_kernelILi1EEvPf (calls=25)
+  Grid=262144 | Block=1024 | LDS=4096B | Scratch=0B | VGPR=24 (Accum=0) | SGPR=16
+  Avg Kernel Time      :   12908.98 us | GRBM_GUI_ACTIVE = 16,797,098
+  Insts (VALU/LDS/Rd/Wr): 42,000,384 / 16,781,312 / 0 / 4,096
+  SQ_LDS_BANK_CONFLICT : 1,040,187,392 | SQ_WAIT_INST_LDS = 2,944,249,187
+
+Kernel: _Z24lds_bank_conflict_kernelILi2EEvPf (calls=25)
+  Grid=262144 | Block=1024 | LDS=4224B | Scratch=0B | VGPR=24 (Accum=0) | SGPR=16
+  Avg Kernel Time      :     676.26 us | GRBM_GUI_ACTIVE = 894,555
+  Insts (VALU/LDS/Rd/Wr): 50,384,896 / 16,781,312 / 0 / 4,096
+  SQ_LDS_BANK_CONFLICT : 0 | SQ_WAIT_INST_LDS = 99,406,587
+
+Kernel: _Z24lds_bank_conflict_kernelILi3EEvPf (calls=25)
+  Grid=262144 | Block=1024 | LDS=4096B | Scratch=0B | VGPR=16 (Accum=0) | SGPR=16
+  Avg Kernel Time      :     674.75 us | GRBM_GUI_ACTIVE = 892,620
+  Insts (VALU/LDS/Rd/Wr): 50,388,992 / 16,781,312 / 0 / 4,096
+  SQ_LDS_BANK_CONFLICT : 0 | SQ_WAIT_INST_LDS = 94,050,631
+```
+
+### 结构化汇总表
 
 | LDS 访问模式 | LDS 占用 | `SQ_INSTS_LDS` | **`SQ_LDS_BANK_CONFLICT`** | **`SQ_WAIT_INST_LDS`** | 平均耗时 (ms) | 相对无冲突 |
 |---|---:|---:|---:|---:|---:|---:|

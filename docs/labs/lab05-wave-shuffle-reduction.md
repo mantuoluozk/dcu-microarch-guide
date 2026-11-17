@@ -8,6 +8,7 @@
 ## 1. 实验原理：什么时候根本不需要写回 LDS？
 
 在 RMSNorm、LayerNorm、Softmax 等算子中，经常需要把一行数据规约成一个标量（Sum 或 Max）：
+
 - **传统纯 LDS 规约：** 把线程部分和写入 `__shared__`，随后在 `128 → 64 → 32 → 16 → 8 → 4 → 2 → 1` 每一步都执行一次 `__syncthreads()`（对应 ISA 中的 `s_waitcnt lgkmcnt(0)` + `s_barrier`），同步开销极高。
 - **Wavefront Shuffle + 极简 LDS：** 同一 Wave64 内的 64 个线程直接通过 `__shfl_down` 在寄存器级别完成 `32 → 16 → 8 → 4 → 2 → 1` 规约（零 LDS 读写、零 Barrier）；只有每个 Wave 的 `lane == 0` 把结果写进仅有几个 `float` 的 LDS，做 **1 次** `__syncthreads()` 后由 Wave 0 收尾。
 
@@ -89,6 +90,18 @@ __global__ void reduce_shuffle_kernel(const float* __restrict__ in,
 cd /exp/dcu_microarch_exp
 make 06_shuffle_vs_lds && ./06_shuffle_vs_lds
 ```
+
+### 原始终端输出
+
+```text
+$ ./06_shuffle_vs_lds
+=== Exp 6: Row Reduction (LDS+Barrier vs Wave Shuffle, 8192x4096) ===
+  Pure LDS + Barriers   :   0.1357 ms (out[0]=4096.0)
+  Wave Shuffle + 1 LDS  :   0.1286 ms (out[0]=4096.0)
+  Speedup               : 1.06x
+```
+
+### 结构化汇总表
 
 | 规约实现（`8192 × 4096`，128 MB） | `__syncthreads()` 次数 | LDS 占用 | 平均耗时 (ms) | 校验值 `out[0]` |
 |---|---:|---:|---:|---:|

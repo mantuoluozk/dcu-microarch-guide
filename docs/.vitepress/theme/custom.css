@@ -1,91 +1,100 @@
-/* Modern minimalist typography, crisp hierarchy & completed vs TODO chapter indicators */
+/* Minimalist Vercel/Notion-grade VitePress theme customization */
 :root {
-  --vp-c-brand-1: #3b82f6;
-  --vp-c-brand-2: #2563eb;
-  --vp-c-brand-3: #1d4ed8;
+  --vp-c-brand-1: #2563eb;
+  --vp-c-brand-2: #1d4ed8;
+  --vp-c-brand-3: #1e40af;
+  --vp-sidebar-width: 296px;
 }
 
-/* Prevent sidebar scrollbar from overlapping text */
-.VPSidebar {
-  scrollbar-gutter: stable;
-  padding-right: 20px !important;
+.dark {
+  --vp-c-brand-1: #60a5fa;
+  --vp-c-brand-2: #3b82f6;
 }
 
+/* Sleek thin scrollbar (replaces fat Windows gray scrollbar) */
+.VPSidebar::-webkit-scrollbar {
+  width: 5px;
+}
+.VPSidebar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.VPSidebar::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+}
+.VPSidebar:hover::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.28);
+}
+
+/* Clean spacing between major parts */
 .VPSidebar .group + .group {
   border-top: 1px solid var(--vp-c-divider);
-  padding-top: 12px;
-  margin-top: 10px;
+  padding-top: 14px;
+  margin-top: 12px;
 }
 
-/* Level-0 Group Titles: prominent bold headers */
+/* Level-0 Part Headers */
 .VPSidebarItem.level-0 > .item > .text {
-  font-size: 14.5px !important;
+  font-size: 13.5px !important;
   font-weight: 700 !important;
   color: var(--vp-c-text-1) !important;
-  padding: 4px 0;
+  letter-spacing: 0.01em;
 }
 
-/* Level-1 Sub-group Titles (e.g. HIP / Triton) */
+/* Level-1 Sub-group Headers (HIP / Triton) */
 .VPSidebarItem.level-1.collapsible > .item > .text {
-  font-size: 13px !important;
+  font-size: 12.5px !important;
   font-weight: 600 !important;
   color: var(--vp-c-brand-1) !important;
 }
 
-/* Clear tree indentation & guide lines for nested levels */
+/* Crisp tree guide lines */
 .VPSidebarItem.level-0 > .items {
-  margin-left: 6px;
+  margin-left: 4px;
   padding-left: 12px;
-  border-left: 1.5px solid var(--vp-c-divider);
+  border-left: 1px solid var(--vp-c-divider);
 }
 
 .VPSidebarItem.level-1 > .items {
-  margin-left: 6px;
+  margin-left: 4px;
   padding-left: 12px;
-  border-left: 1.5px dashed var(--vp-c-divider);
+  border-left: 1px dashed var(--vp-c-divider);
 }
 
-/* Compact spacing for leaf links */
+/* Leaf links: clean single-line fit with soft active pill */
+.VPSidebarItem.is-link > .item > a.link {
+  border-radius: 6px;
+  padding: 0 8px;
+  margin: 1px 0;
+  transition: background-color 0.15s ease;
+}
+
+.VPSidebarItem.is-link > .item > a.link:hover {
+  background-color: var(--vp-c-default-soft);
+}
+
+.VPSidebarItem.is-link.is-active > .item > a.link {
+  background-color: var(--vp-c-brand-soft);
+}
+
 .VPSidebarItem.is-link > .item > a.link .text {
   font-size: 13px;
-  line-height: 1.45;
-  padding: 4px 0;
+  line-height: 28px;
+  padding: 0;
 }
 
-/* Completed chapter indicator: solid emerald dot */
-.VPSidebarItem.is-link > .item > a.link .text::before {
-  content: "";
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background-color: #10b981;
-  margin-right: 7px;
-  vertical-align: middle;
-  flex-shrink: 0;
-}
-
-/* Upcoming / TODO chapter indicator: muted text + amber hollow dot */
+/* Upcoming / TODO chapters: muted gray to contrast cleanly with completed chapters */
 .VPSidebarItem.is-link > .item > a.link[href*="auto-analysis"] .text,
 .VPSidebarItem.is-link > .item > a.link[href*="03-isa-and-sim"] .text,
 .VPSidebarItem.is-link > .item > a.link[href*="lab10-triton-gemm-tuning"] .text,
 .VPSidebarItem.is-link > .item > a.link[href*="framework-profiling"] .text,
 .VPSidebarItem.is-link > .item > a.link[href*="gemm-and-moe"] .text,
 .VPSidebarItem.is-link > .item > a.link[href*="attention-kvcache"] .text {
-  color: var(--vp-c-text-3);
+  color: var(--vp-c-text-3) !important;
+  opacity: 0.65;
 }
 
-.VPSidebarItem.is-link > .item > a.link[href*="auto-analysis"] .text::before,
-.VPSidebarItem.is-link > .item > a.link[href*="03-isa-and-sim"] .text::before,
-.VPSidebarItem.is-link > .item > a.link[href*="lab10-triton-gemm-tuning"] .text::before,
-.VPSidebarItem.is-link > .item > a.link[href*="framework-profiling"] .text::before,
-.VPSidebarItem.is-link > .item > a.link[href*="gemm-and-moe"] .text::before,
-.VPSidebarItem.is-link > .item > a.link[href*="attention-kvcache"] .text::before {
-  background-color: transparent;
-  border: 1.5px solid #f59e0b;
-}
-
-/* Clean mathjax SVG spacing */
+/* MathJax overflow safety */
 mjx-container {
   overflow-x: auto;
   overflow-y: hidden;

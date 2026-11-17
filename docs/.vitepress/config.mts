@@ -4,7 +4,7 @@ import mathjax3 from 'markdown-it-mathjax3'
 export default defineConfig({
   base: '/dcu-microarch-guide/',
   lang: 'zh-CN',
-  title: '海光 DCU 微架构与算子优化指南',
+  title: 'DCU 微架构指南',
   description: '从 DCU 微架构原理、Profiling 工具链到 HIP / Triton / lightop 实战与大模型推理优化',
 
   markdown: {

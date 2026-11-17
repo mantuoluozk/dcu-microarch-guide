@@ -1,0 +1,2007 @@
+
+<!doctype html>
+<html lang="zh" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="从软件执行模型、CU/Wave64/LDS/MMAC 微架构到 HIP、Triton、lightop 与 hipprof 硬件 PMC 计数器实测的实战手册">
+      
+      
+      
+        <link rel="canonical" href="https://mantuoluozk.github.io/dcu-microarch-guide/cases/lstm-persistent-kernel/">
+      
+      
+        <link rel="prev" href="../../llm-opt/03-attention-kvcache/">
+      
+      
+        <link rel="next" href="../llm-operators-playbook/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.1">
+    
+    
+      
+        <title>4.4 案例参考：LSTM Persistent MMAC Kernel - 海光 DCU 微架构与算子优化指南</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="cyan">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#1lstm-persistent-mmac-kernel" class="md-skip">
+          跳转至
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="页眉">
+    <a href="../.." title="海光 DCU 微架构与算子优化指南" class="md-header__button md-logo" aria-label="海光 DCU 微架构与算子优化指南" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            海光 DCU 微架构与算子优化指南
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              4.4 案例参考：LSTM Persistent MMAC Kernel
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="cyan"  aria-label="切换到深色模式"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="切换到深色模式" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="cyan"  aria-label="切换到浅色模式"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="切换到浅色模式" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="搜索" placeholder="搜索" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="查找">
+        
+        <button type="reset" class="md-search__icon md-icon" title="清空当前内容" aria-label="清空当前内容" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            正在初始化搜索引擎
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/mantuoluozk/dcu-microarch-guide" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    mantuoluozk/dcu-microarch-guide
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="导航栏" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="海光 DCU 微架构与算子优化指南" class="md-nav__button md-logo" aria-label="海光 DCU 微架构与算子优化指南" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    海光 DCU 微架构与算子优化指南
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/mantuoluozk/dcu-microarch-guide" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    mantuoluozk/dcu-microarch-guide
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    首页
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../00-plan/research-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    专题实施方案
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    第一部分：DCU 微架构原理
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    第一部分：DCU 微架构原理
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../01-overview/software-stack/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1.1 整体架构、执行模型与软件栈链路
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../02-compute/cu-and-simt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1.2 线程映射、SIMT 分支与计算单元（含 MMAC）
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../03-memory/memory-hierarchy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1.3 存储体系、合并访存与异步等待
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../04-scheduling/occupancy-and-roofline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1.4 Kernel 生命周期、Occupancy 与 Roofline 模型
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../05-modeling/auto-analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1.5 微架构自动化分析与建模（待补充）
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    第二部分：Profiling 与性能分析工具链
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    第二部分：Profiling 与性能分析工具链
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../profiling/01-toolchain-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.1 工具链全景与软件栈探测
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../profiling/02-hipprof-and-parser/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.2 硬件 PMC 采集与自研解析工具
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../profiling/03-isa-and-sim/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.3 ISA 反汇编分析与仿真（DCUSIM 待补充）
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    第三部分：底层微基准与算子实战
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    第三部分：底层微基准与算子实战
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../labs/lab-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    实验导览与环境准备
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_2" id="__nav_5_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HIP 底层微基准
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    HIP 底层微基准
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../labs/lab01-memory-coalescing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    实验 1：合并访存与 float4 向量化
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../labs/lab02-lds-bank-conflict/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    实验 2：LDS Bank Conflict 与 Swizzle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../labs/lab03-branch-divergence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    实验 3：SIMT 分支发散与 If-Conversion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../labs/lab04-occupancy-ilp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    实验 4：Occupancy 悬崖与 ILP 延迟隐藏
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../labs/lab05-wave-shuffle-reduction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    实验 5：Wave Shuffle 规约 vs LDS 规约
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../labs/lab08-memory-latency-ladder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    实验 6：存储延迟阶梯（L1 / L2 / HBM）
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../labs/lab09-mmac-builtin-and-valu/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    实验 7：HCU Builtin MMAC 与 VALU 峰值
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_3" id="__nav_5_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Triton / lightop 高级算子
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Triton / lightop 高级算子
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../labs/lab06-triton-lightop-rmsnorm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    实验 8：融合 RMSNorm 与 ISA 剖析
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../labs/lab07-triton-gemm-vs-rocblas/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    实验 9：Triton GEMM vs rocBLAS 与 PMC 破案
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../labs/lab10-triton-gemm-tuning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    实验 10：Triton GEMM 调优实战（待补充）
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    第四部分：大模型推理优化实战
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    第四部分：大模型推理优化实战
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../llm-opt/01-framework-profiling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.1 vLLM / SGLang 推理热点分析（待补充）
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../llm-opt/02-gemm-and-moe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.2 GEMM 与 MoE 算子优化（待补充）
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../llm-opt/03-attention-kvcache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.3 Attention 与 KV Cache 优化（待补充）
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.4 案例参考：LSTM Persistent MMAC Kernel
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.4 案例参考：LSTM Persistent MMAC Kernel
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#lstm-persistent-mmac-kernel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        七、结合 LSTM Persistent MMAC Kernel 理解硬件协同
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="七、结合 LSTM Persistent MMAC Kernel 理解硬件协同">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#71-lstm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.1 LSTM 的计算结构
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#72-lstm-gate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.2 LSTM 为什么有四个 Gate？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#73-mmac" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.3 为什么使用 MMAC？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#74-256-thread" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.4 为什么选择 256 个 Thread？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#75-lds-hidden-cell" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.5 为什么使用 LDS 保存 Hidden 与 Cell？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#76-persistent-kernel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.6 Persistent Kernel 如何工作？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#77-lstm-kernel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.7 LSTM Kernel 中各组件如何协同？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#78-lstm-persistent-kernel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.8 LSTM Persistent Kernel 的优化重点
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../llm-operators-playbook/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.5 通用算子优化六步法与研发反馈清单
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    实验路线图与更新日志
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#lstm-persistent-mmac-kernel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        七、结合 LSTM Persistent MMAC Kernel 理解硬件协同
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="七、结合 LSTM Persistent MMAC Kernel 理解硬件协同">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#71-lstm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.1 LSTM 的计算结构
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#72-lstm-gate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.2 LSTM 为什么有四个 Gate？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#73-mmac" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.3 为什么使用 MMAC？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#74-256-thread" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.4 为什么选择 256 个 Thread？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#75-lds-hidden-cell" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.5 为什么使用 LDS 保存 Hidden 与 Cell？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#76-persistent-kernel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.6 Persistent Kernel 如何工作？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#77-lstm-kernel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.7 LSTM Kernel 中各组件如何协同？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#78-lstm-persistent-kernel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.8 LSTM Persistent Kernel 的优化重点
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="1lstm-persistent-mmac-kernel">案例 1：LSTM Persistent MMAC Kernel 硬件协同拆解<a class="headerlink" href="#1lstm-persistent-mmac-kernel" title="Permanent link">&para;</a></h1>
+<h2 id="lstm-persistent-mmac-kernel">七、结合 LSTM Persistent MMAC Kernel 理解硬件协同<a class="headerlink" href="#lstm-persistent-mmac-kernel" title="Permanent link">&para;</a></h2>
+<p>这一部分结合之前的 H128 LSTM 项目进行理解。</p>
+<p>需要说明：以下保留你原笔记中的线程配置、数据结构和计算思路，但尚未重新检查完整的 adaptive_lstm_hip.cu 源码，因此具体的 Batch 与 Wave 分工映射仍应以代码为准。</p>
+<h3 id="71-lstm">7.1 LSTM 的计算结构<a class="headerlink" href="#71-lstm" title="Permanent link">&para;</a></h3>
+<p>LSTM 当前时间步依赖：</p>
+<ul>
+<li>当前输入 <span class="arithmatex">\(x_t\)</span>。</li>
+<li>上一时间步 Hidden State <span class="arithmatex">\(h_{t-1}\)</span>。</li>
+<li>上一时间步 Cell State <span class="arithmatex">\(c_{t-1}\)</span>。</li>
+</ul>
+<p>主要矩阵计算为：</p>
+<div class="arithmatex">\[
+G_t=x_tW_{ih}^{T}+h_{t-1}W_{hh}^{T}+b
+\]</div>
+<p>可以拆成两个部分。</p>
+<p><strong>Input Projection</strong></p>
+<div class="arithmatex">\[
+x_tW_{ih}^{T}
+\]</div>
+<p>在输入序列已知的情况下，各时间步的这部分矩阵计算不依赖先前的 Hidden State，因此可以提前批量计算。</p>
+<p><strong>Recurrent Projection</strong></p>
+<div class="arithmatex">\[
+h_{t-1}W_{hh}^{T}
+\]</div>
+<p>该部分依赖上一时间步的 Hidden State，必须遵循时间递推关系。</p>
+<h3 id="72-lstm-gate">7.2 LSTM 为什么有四个 Gate？<a class="headerlink" href="#72-lstm-gate" title="Permanent link">&para;</a></h3>
+<p>对于 Hidden Size = H 的 LSTM：</p>
+<div class="arithmatex">\[
+G_t\in \mathbb{R}^{4H}
+\]</div>
+<p>它包含四个 Gate 的输入：</p>
+<ul>
+<li>Input Gate。</li>
+<li>Forget Gate。</li>
+<li>Cell Candidate。</li>
+<li>Output Gate。</li>
+</ul>
+<p>随后计算：</p>
+<div class="arithmatex">\[
+i_t=\sigma(g_i)
+\]</div>
+<div class="arithmatex">\[
+f_t=\sigma(g_f)
+\]</div>
+<div class="arithmatex">\[
+\tilde c_t=\tanh(g_c)
+\]</div>
+<div class="arithmatex">\[
+o_t=\sigma(g_o)
+\]</div>
+<div class="arithmatex">\[
+c_t=f_t\odot c_{t-1}+i_t\odot\tilde c_t
+\]</div>
+<div class="arithmatex">\[
+h_t=o_t\odot\tanh(c_t)
+\]</div>
+<p>这里的 <span class="arithmatex">\(\odot\)</span> 表示逐元素乘法。</p>
+<p>以 H128 为例：</p>
+<ul>
+<li>Hidden State 长度：128。</li>
+<li>Cell State 长度：128。</li>
+<li>Recurrent 输入矩阵长度：128。</li>
+<li>四个 Gate 的总输出长度：512。</li>
+</ul>
+<p>因此，Recurrent Projection 可以表示为：</p>
+<div class="arithmatex">\[
+[1,128]\times[128,512]\rightarrow[1,512]
+\]</div>
+<p>具体矩阵是否带转置，应按照代码中的权重存储方式确认。</p>
+<h3 id="73-mmac">7.3 为什么使用 MMAC？<a class="headerlink" href="#73-mmac" title="Permanent link">&para;</a></h3>
+<p>Recurrent Projection 的主要计算是矩阵乘法。</p>
+<p>使用普通向量 FMA 虽然可以实现，但可能无法充分利用专门的矩阵计算能力。</p>
+<p>MMAC 可以将矩阵计算组织为多个 Tile，由 Wavefront 协同执行。</p>
+<p>例如，假设目标输出分块宽度为 16：</p>
+<ul>
+<li>单个 Gate 的 128 个输出可以划分为 8 个 16 列 Tile。</li>
+<li>四个 Gate 的 512 个输出总共对应 32 个 16 列 Tile。</li>
+</ul>
+<p>这是你原笔记中需要补充的一个重要细节：</p>
+<p><strong>H128 划分为 8 个 16 列 Tile，描述的是 128 维范围；如果讨论四个 Gate 的完整 Recurrent 输出，则总维度是 512，需要考虑全部 32 个输出 Tile。</strong></p>
+<p>实际 Kernel 可能通过 Gate 融合、Batch 合并或者更大的 Wave Tile 调整计算组织，不能只根据 Hidden Size 推断整个循环次数。</p>
+<h3 id="74-256-thread">7.4 为什么选择 256 个 Thread？<a class="headerlink" href="#74-256-thread" title="Permanent link">&para;</a></h3>
+<p>你之前的项目使用：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">__global__</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="n">__launch_bounds__</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="n">adaptive_lstm_mmac_packed_kernel</span><span class="p">(...)</span>
+</code></pre></div>
+<p>并以每 Block 256 个线程启动。</p>
+<p>在 Wave64 模型下：</p>
+<div class="arithmatex">\[
+256=4\times64
+\]</div>
+<p>所以一个 Block 包含四个 Wavefront。</p>
+<p>如果每个 Wavefront 负责一个 16 列输出 Tile，那么四个 Wavefront 在一个阶段可以覆盖四个 Tile。</p>
+<p>例如对于某一 Gate 的 128 维输出：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>Wave 0 → Tile 0：0～15
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>Wave 1 → Tile 1：16～31
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>Wave 2 → Tile 2：32～47
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>Wave 3 → Tile 3：48～63
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>下一轮：
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>Wave 0 → Tile 4：64～79
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>Wave 1 → Tile 5：80～95
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>Wave 2 → Tile 6：96～111
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>Wave 3 → Tile 7：112～127
+</code></pre></div>
+<p>但实际 Kernel 还可能同时处理多个 Batch 样本。</p>
+<p>因此需要通过线程索引和输出地址计算，明确以下映射：</p>
+<div class="arithmatex">\[
+(\text{Block},\text{Wave},\text{Lane})
+\rightarrow
+(\text{Batch},\text{Gate},\text{Output Tile})
+\]</div>
+<p>这一步应该成为后续分析该 Kernel 的重点。</p>
+<h3 id="75-lds-hidden-cell">7.5 为什么使用 LDS 保存 Hidden 与 Cell？<a class="headerlink" href="#75-lds-hidden-cell" title="Permanent link">&para;</a></h3>
+<p>你原来记录的 LDS 数组包括：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">__shared__</span><span class="w"> </span><span class="n">half</span><span class="w"> </span><span class="n">h_buf</span><span class="p">[</span><span class="mi">2</span><span class="p">][...];</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">__shared__</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">cell_lds</span><span class="p">[...];</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">__shared__</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">recur_h</span><span class="p">[...];</span>
+</code></pre></div>
+<p>可以分别理解为：</p>
+<p><strong>h_buf：</strong> 保存 Hidden State，双缓冲可以让上一时间步的输入与当前时间步的输出使用不同存储区域，避免覆盖仍需要读取的数据。</p>
+<p><strong>cell_lds：</strong> 保存 Cell State，用于下一时间步的更新。</p>
+<p><strong>recur_h：</strong> 保存 Recurrent 计算过程中需要跨线程共享或继续使用的中间结果。</p>
+<p>这些数组的具体大小、数据布局以及读写顺序，决定 LDS 占用和同步开销。</p>
+<h3 id="76-persistent-kernel">7.6 Persistent Kernel 如何工作？<a class="headerlink" href="#76-persistent-kernel" title="Permanent link">&para;</a></h3>
+<p><img alt="LSTM Persistent MMAC Kernel 与硬件协同图解（图文笔记图 2）" src="../../assets/images/dcu_note_fig2.png" /></p>
+<p>传统分步实现可以是：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>时间步 t=0
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>启动 Kernel
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>计算 h0、c0
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>写回全局内存
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>时间步 t=1
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>启动 Kernel
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>读取 h0、c0
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>计算 h1、c1
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>写回全局内存
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>时间步 t=2
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>...
+</code></pre></div>
+<p>而 Persistent Kernel 可以把整个时间循环留在一个长期运行的 Kernel 中：</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>Kernel 启动
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    │
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    ├── Block 分配到 CU
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    │
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    ├── Wavefront 创建并驻留
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    │
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    ├── LDS 初始化 Hidden / Cell
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>    │
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>    └── 时间循环
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>         │
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>         ├── t=0
+<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>         │   ├── MMAC 计算 Recurrent
+<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a>         │   ├── Gate 计算与状态更新
+<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a>         │   └── 写回 LDS
+<a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a>         │
+<a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a>         ├── t=1
+<a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a>         │   ├── 从 LDS 读取上一时刻状态
+<a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a>         │   ├── MMAC 计算 Recurrent
+<a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a>         │   ├── Gate 计算与状态更新
+<a id="__codelineno-4-20" name="__codelineno-4-20" href="#__codelineno-4-20"></a>         │   └── 写回 LDS
+<a id="__codelineno-4-21" name="__codelineno-4-21" href="#__codelineno-4-21"></a>         │
+<a id="__codelineno-4-22" name="__codelineno-4-22" href="#__codelineno-4-22"></a>         └── ...
+<a id="__codelineno-4-23" name="__codelineno-4-23" href="#__codelineno-4-23"></a>    │
+<a id="__codelineno-4-24" name="__codelineno-4-24" href="#__codelineno-4-24"></a>    └── 最终结果写回 Global Memory
+</code></pre></div>
+<p>Persistent Kernel 的主要潜在收益包括：</p>
+<ol>
+<li>减少逐时间步 Kernel Launch 开销。</li>
+<li>在同一个 Kernel 中融合 Recurrent、Gate 和状态更新。</li>
+<li>在 LDS 或寄存器中复用 Hidden/Cell 等中间状态。</li>
+<li>减少不必要的全局显存读写。</li>
+<li>减少重复的调度、初始化及部分数据准备成本。</li>
+</ol>
+<p>但 Persistent Kernel 也有代价。</p>
+<p>如果每个 Block 的 LDS 或寄存器占用过大，会降低 CU 上的并发驻留数量。</p>
+<p>如果 Block 数量不足，还可能无法充分利用所有 CU。</p>
+<p>因此 Persistent 方案并不是一定比非 Persistent 方案更快。</p>
+<h3 id="77-lstm-kernel">7.7 LSTM Kernel 中各组件如何协同？<a class="headerlink" href="#77-lstm-kernel" title="Permanent link">&para;</a></h3>
+<p>可以把一次时间步计算拆分为：</p>
+<p><strong>第一步：Scheduler 调度 Wavefront</strong></p>
+<p>四个 Wavefront 根据 Kernel 的计算任务执行各自的矩阵 Tile。</p>
+<p><strong>第二步：VMEM/LDS 提供计算数据</strong></p>
+<p>从 LDS 读取上一时间步 Hidden State，加载或复用 Recurrent Weight。</p>
+<p><strong>第三步：VGPR 保存矩阵片段</strong></p>
+<p>输入数据按照 MMAC 所需 Layout 分布到寄存器。</p>
+<p><strong>第四步：MMAC 执行 Recurrent Projection</strong></p>
+<p>利用矩阵乘加指令计算对应的 Gate 输入片段。</p>
+<p><strong>第五步：VALU 与特殊数学指令完成 Gate 更新</strong></p>
+<p>执行 Sigmoid、Tanh、逐元素乘法与加法等操作。</p>
+<p><strong>第六步：LDS 保存新的 Hidden/Cell</strong></p>
+<p>通过必要的同步，确保下一个时间步读取到正确数据。</p>
+<p><strong>第七步：继续下一个时间步</strong></p>
+<p>Wavefront 保持在同一个 Kernel 中执行，直至序列处理完成。</p>
+<h3 id="78-lstm-persistent-kernel">7.8 LSTM Persistent Kernel 的优化重点<a class="headerlink" href="#78-lstm-persistent-kernel" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>硬件组件</th>
+<th>需要分析的内容</th>
+<th>可能的优化方向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scheduler / Wavefront</td>
+<td>4 个 Wave 的工作划分与等待情况</td>
+<td>调整 Wave 数和任务映射</td>
+</tr>
+<tr>
+<td>MMAC</td>
+<td>矩阵指令利用率与依赖关系</td>
+<td>优化矩阵 Tile、提高指令并行度</td>
+</tr>
+<tr>
+<td>VGPR</td>
+<td>矩阵操作数和累加结果占用</td>
+<td>控制寄存器压力、避免 Spill</td>
+</tr>
+<tr>
+<td>LDS</td>
+<td>Hidden/Cell/临时结果存储</td>
+<td>优化布局、减少重复访问与同步</td>
+</tr>
+<tr>
+<td>VMEM</td>
+<td>权重加载和结果写回</td>
+<td>提高数据复用、改善访存模式</td>
+</tr>
+<tr>
+<td>VALU / 特殊函数</td>
+<td>Gate、Sigmoid、Tanh</td>
+<td>计算融合、减少冗余操作</td>
+</tr>
+<tr>
+<td>CU</td>
+<td>Block 驻留与整体利用率</td>
+<td>平衡 Persistent 状态规模和并行度</td>
+</tr>
+</tbody>
+</table>
+<hr />
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  回到页面顶部
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="页脚" >
+        
+          
+          <a href="../../llm-opt/03-attention-kvcache/" class="md-footer__link md-footer__link--prev" aria-label="上一页: 4.3 Attention 与 KV Cache 优化（待补充）">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                上一页
+              </span>
+              <div class="md-ellipsis">
+                4.3 Attention 与 KV Cache 优化（待补充）
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../llm-operators-playbook/" class="md-footer__link md-footer__link--next" aria-label="下一页: 4.5 通用算子优化六步法与研发反馈清单">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                下一页
+              </span>
+              <div class="md-ellipsis">
+                4.5 通用算子优化六步法与研发反馈清单
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.expand", "navigation.footer", "navigation.top", "content.code.copy", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "\u5df2\u590d\u5236", "clipboard.copy": "\u590d\u5236", "search.result.more.one": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.more.other": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 # \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.none": "\u6ca1\u6709\u627e\u5230\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.one": "\u627e\u5230 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.other": "# \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.placeholder": "\u952e\u5165\u4ee5\u5f00\u59cb\u641c\u7d22", "search.result.term.missing": "\u7f3a\u5c11", "select.version": "\u9009\u62e9\u5f53\u524d\u7248\u672c"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+        <script src="../../javascripts/mathjax.js"></script>
+      
+        <script src="../../javascripts/nav-expand.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

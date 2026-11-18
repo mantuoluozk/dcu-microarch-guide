@@ -8,7 +8,7 @@ import MicroarchDiagram from "../.vitepress/theme/MicroarchDiagram.vue"
 
 # 1.4 · 调度、Occupancy 与延迟隐藏
 
-**读完要能讲出来**　一个 wave 等数据时，CU 如何继续发射工作？为什么更多驻留或更多独立加载不一定更快？
+一个 wave 在等数据时，CU 还可以调度其他就绪的 wave。本章介绍 CU 能同时容纳多少工作，以及怎样用独立指令减少等待造成的空闲。
 
 ## 基础概念 · Occupancy 与资源约束
 

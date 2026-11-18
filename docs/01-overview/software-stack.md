@@ -8,7 +8,7 @@ import MicroarchDiagram from "../.vitepress/theme/MicroarchDiagram.vue"
 
 # 1.1 · 从 Kernel 启动到 CU
 
-**读完要能讲出来**　一次 Kernel 的任务如何分成 Block 和 wave，又怎样落到 CU 上？
+CPU 启动一个 Kernel 后，DCU 会把这次计算的 Block 分派到计算单元（CU）执行。本章用一次向量加法说明任务是怎么拆分和分派的。
 
 ## 基础概念 · 软件模型与硬件资源
 

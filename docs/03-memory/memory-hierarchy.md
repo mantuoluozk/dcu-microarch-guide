@@ -8,7 +8,7 @@ import MicroarchDiagram from "../.vitepress/theme/MicroarchDiagram.vue"
 
 # 1.3 · 数据路径、缓存与同步
 
-**读完要能讲出来**　操作数从哪里来？什么时候能用？什么时候需要等其他线程？
+一次加法要先拿到数据，算完还要把结果写回。本章沿着这条数据路径，介绍寄存器、LDS、缓存和显存，以及不同情况下需要等什么。
 
 ## 基础概念 · 寄存器、LDS、Cache 与 HBM
 

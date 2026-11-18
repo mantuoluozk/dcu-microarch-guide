@@ -8,7 +8,7 @@ import MicroarchDiagram from "../.vitepress/theme/MicroarchDiagram.vue"
 
 # 1.2 · CU、Wavefront 与计算路径
 
-**读完要能讲出来**　CU 如何选择 wave 发射指令？SALU、VALU 和 MMAC 在做什么？
+CU 以 wave 为单位执行线程，同一个 wave 里的线程可以处理不同的数据。本章介绍 CU 如何调度 wave，以及标量、向量和矩阵运算各走什么路径。
 
 ## 基础概念 · Thread、Wavefront 与 Block
 
@@ -198,7 +198,7 @@ $$D=A\times B+C$$
 
 <MicroarchDiagram kind="compute" />
 
-| 功能 | 读者应能识别的工作 | 在主例中如何理解 |
+| 功能 | 主要职责 | 在主例中如何理解 |
 |---|---|---|
 | Scheduler | 在可发射的 wave 中选择指令 | 确认输入就绪后，向量加法才消费加载结果 |
 | SALU 与 SGPR | 处理可按 wave 表示的标量值、运算与控制 | Kernel 参数、统一地址或循环状态有机会走标量路径，由编译器决定 |

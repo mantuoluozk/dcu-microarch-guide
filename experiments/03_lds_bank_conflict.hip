@@ -1,81 +1,100 @@
 #include "common.h"
+#include <cstring>
+#include <vector>
 
-constexpr int TILE = 32;
-constexpr int LDS_ITERS = 2048;
+constexpr unsigned BLOCK_SIZE = 256;
+constexpr unsigned GROUP_SIZE = 32;
+constexpr unsigned GROUP_WORDS = 32 * 33;
+constexpr unsigned LDS_ITERS = 2048;
 
-template <int MODE>
-__global__ void lds_bank_conflict_kernel(float* __restrict__ out) {
-    // MODE 0: row-wise (no conflict)
-    // MODE 1: col-wise (32-way bank conflict)
-    // MODE 2: col-wise with +1 padding (conflict-free)
-    // MODE 3: col-wise with XOR swizzle (conflict-free, zero memory overhead)
-    __shared__ float tile_std[TILE][TILE];
-    __shared__ float tile_pad[TILE][TILE + 1];
+struct Layout {
+    const char* name;
+    unsigned degree;
+};
 
-    int tx = threadIdx.x % TILE;
-    int ty = threadIdx.x / TILE; // 0..7 for block=256, or 0..31 for block=1024
+constexpr Layout layouts[] = {
+    {"degree1", 1}, {"degree2", 2}, {"degree4", 4},
+    {"degree8", 8}, {"degree16", 16}, {"degree32", 32},
+    {"padding33", 0}, {"xor", 0},
+};
 
-    if constexpr (MODE == 2) {
-        tile_pad[ty][tx] = static_cast<float>(threadIdx.x) * 0.001f;
-    } else {
-        tile_std[ty][tx] = static_cast<float>(threadIdx.x) * 0.001f;
+__host__ __device__ unsigned lds_offset(unsigned tid, unsigned layout, unsigned degree) {
+    const unsigned lane = tid % GROUP_SIZE;
+    const unsigned base = (tid / GROUP_SIZE) * GROUP_WORDS;
+    constexpr unsigned column = 7;
+    if (layout == 6) return base + lane * 33 + column;
+    if (layout == 7) return base + lane * 32 + (lane ^ column);
+    const unsigned banks_used = GROUP_SIZE / degree;
+    return base + (lane / banks_used) * 32 + (lane % banks_used + column) % 32;
+}
+
+__global__ void lds_read_kernel(unsigned* out, unsigned layout, unsigned degree) {
+    constexpr unsigned words = (BLOCK_SIZE / GROUP_SIZE) * GROUP_WORDS;
+    __shared__ volatile unsigned tile[words];
+    const unsigned tid = threadIdx.x;
+    for (unsigned i = tid; i < words; i += BLOCK_SIZE) {
+        tile[i] = i + 1;
     }
     __syncthreads();
 
-    float acc = 0.0f;
-    // Dependent chain prevents compiler from hoisting LDS reads out of the loop
-    for (int i = 0; i < LDS_ITERS; ++i) {
-        int r = (ty + i) & (TILE - 1);
-        float v = 0.0f;
-        if constexpr (MODE == 0) {
-            v = tile_std[r][tx];
-            tile_std[r][tx] = v + 1e-6f;
-        } else if constexpr (MODE == 1) {
-            v = tile_std[tx][r];
-            tile_std[tx][r] = v + 1e-6f;
-        } else if constexpr (MODE == 2) {
-            v = tile_pad[tx][r];
-            tile_pad[tx][r] = v + 1e-6f;
-        } else if constexpr (MODE == 3) {
-            v = tile_std[tx][r ^ tx];
-            tile_std[tx][r ^ tx] = v + 1e-6f;
-        }
-        acc += v;
+    const unsigned offset = lds_offset(tid, layout, degree);
+    unsigned sum = 0;
+    #pragma unroll 4
+    for (unsigned i = 0; i < LDS_ITERS; ++i) {
+        sum += tile[offset];
     }
-
-    int gid = blockIdx.x * blockDim.x + threadIdx.x;
-    out[gid] = acc;
+    out[blockIdx.x * BLOCK_SIZE + tid] = sum;
 }
 
-int main() {
-    // Use 1024 threads per block (32x32 tile = 16 Wavefronts on Wave64)
-    // Launch enough blocks to saturate all CUs
-    constexpr int block_size = 1024;
-    constexpr int grid_size = 256;
-    constexpr int total_threads = block_size * grid_size;
+int main(int argc, char** argv) {
+    constexpr unsigned count = sizeof(layouts) / sizeof(layouts[0]);
+    unsigned first = 0, last = count;
+    const bool profiling = argc == 3 && std::strcmp(argv[2], "profile") == 0;
+    if (argc > 1) {
+        while (first < count && std::strcmp(layouts[first].name, argv[1]) != 0) {
+            ++first;
+        }
+        if (first == count || (argc != 2 && !profiling)) {
+            std::fprintf(stderr, "Usage: %s [degree1|degree2|degree4|degree8|degree16|degree32|padding33|xor [profile]]\n",
+                         argv[0]);
+            return EXIT_FAILURE;
+        }
+        last = first + 1;
+    }
 
-    float* d_out = nullptr;
-    HIP_CHECK(hipMalloc(&d_out, total_threads * sizeof(float)));
+    hipDeviceProp_t prop{};
+    HIP_CHECK(hipGetDeviceProperties(&prop, 0));
+    const unsigned blocks = prop.multiProcessorCount * 8;
+    std::vector<unsigned> result(blocks * BLOCK_SIZE);
+    unsigned* out = nullptr;
+    HIP_CHECK(hipMalloc(&out, result.size() * sizeof(result[0])));
 
-    std::printf("=== Exp 3: LDS Bank Conflict (32x32 Tile, %d LDS r/w iters) ===\n", LDS_ITERS);
-
-    auto run_mode = [&](const char* label, auto kernel_fn) {
-        float ms = benchmark_kernel([&]() {
-            hipLaunchKernelGGL(kernel_fn, dim3(grid_size), dim3(block_size), 0, 0, d_out);
-        });
-        std::printf("  %-38s : %8.4f ms\n", label, ms);
-        return ms;
-    };
-
-    float t0 = run_mode("0. Row-wise (No conflict)", lds_bank_conflict_kernel<0>);
-    float t1 = run_mode("1. Col-wise (32-way Bank Conflict)", lds_bank_conflict_kernel<1>);
-    float t2 = run_mode("2. Col-wise + Padding [32][33]", lds_bank_conflict_kernel<2>);
-    float t3 = run_mode("3. Col-wise + XOR Swizzle [tx][r^tx]", lds_bank_conflict_kernel<3>);
-
-    std::printf("  Slowdown (32-way vs No-conflict)      : %.2fx\n", t1 / t0);
-    std::printf("  Speedup  (Padding vs Conflict)        : %.2fx\n", t1 / t2);
-    std::printf("  Speedup  (Swizzle vs Conflict)        : %.2fx\n", t1 / t3);
-
-    HIP_CHECK(hipFree(d_out));
-    return 0;
+    std::puts("variant,sample,ms,validation");
+    for (unsigned index = first; index < last; ++index) {
+        const auto& layout = layouts[index];
+        auto launch = [&]() {
+            hipLaunchKernelGGL(lds_read_kernel, dim3(blocks), dim3(BLOCK_SIZE), 0, 0,
+                               out, index, layout.degree);
+            HIP_CHECK(hipGetLastError());
+        };
+        launch();
+        HIP_CHECK(hipMemcpy(result.data(), out, result.size() * sizeof(result[0]),
+                            hipMemcpyDeviceToHost));
+        for (size_t i = 0; i < result.size(); ++i) {
+            const unsigned expected = LDS_ITERS * (lds_offset(i % BLOCK_SIZE, index, layout.degree) + 1);
+            if (result[i] != expected) {
+                std::fprintf(stderr, "%s: validation failed at %zu\n", layout.name, i);
+                return EXIT_FAILURE;
+            }
+        }
+        if (profiling) {
+            for (int sample = 0; sample < 5; ++sample) launch();
+            HIP_CHECK(hipDeviceSynchronize());
+        } else {
+            for (int sample = 1; sample <= 5; ++sample) {
+                std::printf("%s,%d,%.6f,pass\n", layout.name, sample, benchmark_kernel(launch));
+            }
+        }
+    }
+    HIP_CHECK(hipFree(out));
 }

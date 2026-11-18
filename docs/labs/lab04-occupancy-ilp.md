@@ -1,116 +1,46 @@
-# E04 · Occupancy 悬崖与 TLP / ILP 延迟隐藏
+# E04 · Occupancy 与独立加载链
 
-**研究问题**　LDS 压低驻留 wave 数之后，提高 ILP 能追回多少性能？
+**研究问题**　固定每线程读取量时，增加独立加载链能在多大程度上补偿较低的 wave 驻留上限？
 
-历史 BW100 记录中，动态 LDS 增加使驻留上限从 32 wave/CU 降到 4。High-ILP 只在所测的 8 wave/CU 配置略占优。
+在 BW100 上，**4 wave/CU 上限时**，8 条链使耗时从 0.4560 ms 降到 **0.2278 ms**。**32 wave/CU 上限时**，最快的是 2 条链（0.0569 ms），8 条链耗时增加到 0.0806 ms。独立链数量的收益随驻留条件变化。
 
 [适用环境](../baselines/bw100-gfx936.md) · [复现命令](#复现命令)
 
 ## BW100 结果
 
-| 动态 LDS 占用 | 每 CU 驻留 Block 数 | 每 CU 驻留 Wave 数（Occupancy） | `Low-ILP` (ms) | `High-ILP` (ms) |
-|---|---:|---:|---:|---:|
-| `0 KB` | `8` | `32` (`80%`) | **`0.0386`** | `0.0484` |
-| `16 KB` | `4` | `16` (`40%`) | `0.0491` | `0.0501` |
-| `32 KB` | `2` | `8` (`20%`) | `0.0806` | **`0.0779`** |
-| `48 KB` | `1` | `4` (`10%`) | `0.1045` | `0.1218` |
+![E04 四条曲线比较 1、2、4、8 条加载链在 4、8、16、32 wave/CU 理论驻留上限下的逻辑读取速率。4 wave/CU 时 8 条链最快，32 wave/CU 时 2 条链最快。](/data/bw100-20261118/figures/e04-occupancy-ilp.png)
+
+图中的读取速率按每次 dispatch 的 **64 MiB 逻辑输入量 / 耗时**计算。横轴来自 HIP occupancy API，表示给定资源与启动配置下的驻留上限。表中为无 profiler 的五轮耗时中位数，每轮测量 20 次 dispatch。16 个配置均通过全量回环校验。
+
+| 动态 LDS / block | 驻留上限 (wave/CU) | 1 条链 (ms) | 2 条链 (ms) | 4 条链 (ms) | 8 条链 (ms) |
+|---|---:|---:|---:|---:|---:|
+| 0 KiB | 32 | 0.0693 | **0.0569** | 0.0582 | 0.0806 |
+| 16 KiB | 16 | 0.1210 | 0.0868 | **0.0820** | 0.0904 |
+| 32 KiB | 8 | 0.2291 | 0.1578 | **0.1480** | 0.1559 |
+| 48 KiB | 4 | 0.4560 | 0.3170 | 0.2446 | **0.2278** |
 
 ## 复现命令
 
 ```bash
 cd experiments
-make 05_occupancy_and_ilp && ./05_occupancy_and_ilp
+hipcc -O3 -std=c++17 --offload-arch=gfx936 -save-temps 05_occupancy_and_ilp.hip -o 05_occupancy_and_ilp
+./05_occupancy_and_ilp > e04.csv
+hipprof --pmc --pmc-type 3 --kernel-name chase_rings -o e04-8-48-pmc \
+  ./05_occupancy_and_ilp 8 48 profile
+python3 parse_hipprof_pmc.py e04-8-48-pmc.csv --kernel chase_rings --expect-dispatches 6
 ```
 
-> **源码：** [05_occupancy_and_ilp.hip](https://github.com/mantuoluozk/dcu-microarch-guide/blob/main/experiments/05_occupancy_and_ilp.hip)  
-> **关联理论：** [第 4 章：Occupancy、TLP 与 ILP](../04-scheduling/occupancy-and-roofline.md)
+[下载逐轮计时、PMC 与 ISA](/data/bw100-lds-occupancy.zip) · [Occupancy 与 Roofline](../04-scheduling/occupancy-and-roofline.md)
 
-## 实验原理：没有足够 Wavefront 时，CU 会怎样？
+## 如何解读
 
-一次 HBM 访问延迟高达数百个时钟周期。DCU 隐藏延迟靠两条腿走路：
+- 每个线程访问同一组 64 个节点。把这些节点拆成 1、2、4 或 8 条环，链内的下一次地址依赖上一次加载结果。初始化和正确性校验在计时之外。所有链数都以加载器返回的索引寻址，循环中无需额外取模。
+- 动态 LDS 仅在 kernel 启动时预留，循环中无 LDS 读取。独立 PMC 采集核对了 `0/16384/32768/49152 B` 的实际预留字段。每组 HIP 驻留上限为 32、16、8、4 wave/CU。图中的速率按逻辑读取量折算，实际驻留与物理流量需另测。
+- ISA 中各特化的循环体分别包含 1、2、4 和 8 条 `global_load_dword`。增加链数也改变循环次数、地址发射顺序和 VGPR 用量，PMC 的 `arch_vgpr` 分别为 8、12、16、28。这里测得的是完整实现的延迟隐藏收益，较高驻留上限时 8 条链变慢的具体原因仍需独立对照。
+- 旧版会在 0 KiB 档位尝试读取动态 LDS，并且两种 ILP 写法有不同索引成本。新版移除了该读取，并让不同链数访问相同节点集合。[旧版实验记录](https://github.com/mantuoluozk/dcu-microarch-guide/blob/c9c4e6c/docs/labs/lab04-occupancy-ilp.md)
 
-1. **TLP（线程级并行 / Occupancy）：** Wave 0 等待 HBM 时，CU 调度器立刻切换执行 Wave 1 ~ Wave N。如果因为 VGPR 或 LDS 占用过大，导致每 CU 只能驻留极少数 Wavefront，调度器就会“无 Wave 可切”，只能干等。
-2. **ILP（指令级并行）：** 单个 Wavefront 内部连续发射多条互不依赖的独立加载指令（在 `s_waitcnt` 前一起在途飞行），也能在一定程度上摊薄延迟。
+::: details 查看完整源码
 
-## 现象拆解与工程结论
-
-1. **清晰的 Occupancy 阶梯：** BW100 每 CU 64 KB LDS 下，随着单 Block LDS 从 `0 → 16 → 32 → 48 KB`，驻留 Wave 数按 `32 → 16 → 8 → 4` 阶梯腰斩。
-2. **Low-ILP 的延迟暴露：** 当 Wave 数从 `32` 跌到 `4` 时，`Low-ILP` 耗时从 `0.0386 ms` 恶化到 `0.1045 ms`（**2.71x 退化**）。
-3. **ILP 的代价：** 在 `8 Waves/CU`（32 KB LDS）甜点处，`High-ILP` 反超 `Low-ILP`（`0.0779` vs `0.0806 ms`）；但在 0 KB 与 48 KB 时略慢，是因为 `High-ILP` 循环中 4 路索引使用了额外的 `% n` 整数取模 VALU 指令。这提醒我们：**提升 ILP 时不能引入过重的索引计算开销**。
-
-::: details 查看源码与实现细节
-
-```cpp title="experiments/05_occupancy_and_ilp.hip"
-#include "common.h"
-
-// Low-ILP：单路串行依赖加载（高度依赖 TLP / 高 Occupancy 隐藏延迟）
-__global__ void low_ilp_kernel(const float* __restrict__ a,
-                               float* __restrict__ out,
-                               int n,
-                               int steps) {
-    extern __shared__ char dummy_lds[];
-    int gid = blockIdx.x * blockDim.x + threadIdx.x;
-    int stride = gridDim.x * blockDim.x;
-    if (gid >= n) return;
-
-    float acc = 0.0f;
-    int idx = gid;
-    for (int s = 0; s < steps; ++s) {
-        acc += a[idx];
-        idx += stride;
-        if (idx >= n) idx -= n;
-    }
-    if (threadIdx.x == 0 && dummy_lds[0] == 123) out[0] = 0.0f; // 防止动态 LDS 被优化掉
-    out[gid] = acc;
-}
-
-// High-ILP：每轮发射 4 条独立加载（在低 Occupancy 下靠单 Wave 内 ILP 抗延迟）
-__global__ void high_ilp_kernel(const float* __restrict__ a,
-                                float* __restrict__ out,
-                                int n,
-                                int steps) {
-    extern __shared__ char dummy_lds[];
-    int gid = blockIdx.x * blockDim.x + threadIdx.x;
-    int stride = gridDim.x * blockDim.x;
-    if (gid >= n) return;
-
-    float acc0 = 0.0f, acc1 = 0.0f, acc2 = 0.0f, acc3 = 0.0f;
-    int idx0 = gid;
-    int idx1 = (gid + stride) % n;
-    int idx2 = (gid + 2 * stride) % n;
-    int idx3 = (gid + 3 * stride) % n;
-
-    for (int s = 0; s < steps; s += 4) {
-        float v0 = a[idx0];
-        float v1 = a[idx1];
-        float v2 = a[idx2];
-        float v3 = a[idx3];
-        acc0 += v0; acc1 += v1; acc2 += v2; acc3 += v3;
-        idx0 = (idx0 + 4 * stride) % n;
-        idx1 = (idx1 + 4 * stride) % n;
-        idx2 = (idx2 + 4 * stride) % n;
-        idx3 = (idx3 + 4 * stride) % n;
-    }
-    if (threadIdx.x == 0 && dummy_lds[0] == 123) out[0] = 0.0f;
-    out[gid] = (acc0 + acc1) + (acc2 + acc3);
-}
-```
-
-#### 关键代码设计细节
-- **如何精准控制每 CU 驻留 Wave 数？** 通过 `hipLaunchKernelGGL(..., lds_bytes, ...)` 传入 `0 / 16 / 32 / 48 KB` 动态 LDS，并用 `hipOccupancyMaxActiveBlocksPerMultiprocessor` 查询驱动计算出的真实驻留 Block 上限。
-- **`dummy_lds[0] == 123` 的作用：** 避免编译器认为动态共享内存未被使用而优化掉资源声明（实际运行时不会触发写入）。
-
-:::
-
-::: details 查看原始终端输出
-
-```text
-$ ./05_occupancy_and_ilp
-=== Exp 5: Occupancy vs ILP Latency Hiding (CU=64, Block=256) ===
-  LDS= 0 KB | Low-ILP:  8 Blks/CU (32 Waves) ->  0.0386 ms | High-ILP:  8 Blks/CU (32 Waves) ->  0.0484 ms
-  LDS=16 KB | Low-ILP:  4 Blks/CU (16 Waves) ->  0.0491 ms | High-ILP:  4 Blks/CU (16 Waves) ->  0.0501 ms
-  LDS=32 KB | Low-ILP:  2 Blks/CU ( 8 Waves) ->  0.0806 ms | High-ILP:  2 Blks/CU ( 8 Waves) ->  0.0779 ms
-  LDS=48 KB | Low-ILP:  1 Blks/CU ( 4 Waves) ->  0.1045 ms | High-ILP:  1 Blks/CU ( 4 Waves) ->  0.1218 ms
-```
+<<< ../../experiments/05_occupancy_and_ilp.hip{cpp}
 
 :::

@@ -10,6 +10,8 @@
 
 FP16 输入与输出、FP32 累加。各配置通过对 FP32 参考计算的误差检查。计时为无 profiler 的 HIP event 测量，5 轮，每轮 20 次。PMC 为另一进程中 6 次目标 dispatch 的后 5 次平均。
 
+![BW100 E09 六种 GEMM 配置按耗时从短到长排列。rocBLAS 约 0.535 ms，最快 Triton 约 1.412 ms，旧 Triton 配置约 2.715 ms。](/data/bw100-20261118/figures/e09-gemm-runtime.png)
+
 | 配置 | 中位数 (ms) | TFLOPS | LDS (B) | arch_vgpr | scr (B) | SQ_WAIT_INST_LDS |
 |---|---:|---:|---:|---:|---:|---:|
 | PyTorch → rocBLAS | 0.5346 | 257.08 | 65536 | 212 | 0 | 3.93 M |
@@ -33,6 +35,10 @@ python3 parse_hipprof_pmc.py e09-base-pmc.csv --kernel gemm_kernel --expect-disp
 [下载逐配置的 JSON、PMC CSV、摘要和 Triton ISA](/data/bw100-20261118.zip) · [Occupancy 与 Roofline](../04-scheduling/occupancy-and-roofline.md)
 
 ## 消融结果与归因边界
+
+![仅把 BK 从 32 改到 16，耗时增加约 6%，VGPR 减少约 22%，LDS 等待计数减少约 29%。](/data/bw100-20261118/figures/e09-bk16-deltas.png)
+
+图中各项分别与 Triton 基准的同一指标比较。耗时来自无 profiler 计时，VGPR 和 LDS 等待计数来自独立 PMC 采集。
 
 - **BK 32 → 16**：VGPR 144 → 112，静态 LDS 和 scratch 持平，等待计数下降约 29%，耗时增加约 6%。需要进一步按 LDS 指令、运行工作量和循环开销解释。
 - **流水级数 1 → 2**：LDS 8704 → 16384 B，VGPR 144 → 160，耗时增加约 6%。要判断是否因资源消耗影响驻留，仍需该 code object 的驻留上限或动态 occupancy 证据。

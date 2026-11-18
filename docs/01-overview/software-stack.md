@@ -52,23 +52,49 @@ Kernel Launch
 | Grid | 组织一次 Kernel 的全部计算任务 | 分布到整张 GPU 的多个 CU |
 | Block / Workgroup | 组织可以共享数据并同步的线程 | 一个 Block 被分配到一个 CU |
 | Wavefront | 一组共享指令执行流的线程 | GPU 的重要调度与执行单位 |
-| Thread / Work-item | 负责具体数据元素的计算 | 对应 Wavefront 中的逻辑 Lane |
-| Lane | Thread 在当前 Wavefront 内的位置 | 用于指令执行、数据布局及跨 Lane 通信 |
+| Thread / Work-item | 同一个概念的两种叫法，指执行一份 Kernel 代码的逻辑线程 | 每个线程在所属 wave 中占一个逻辑 lane |
+| Lane | 一个线程在所属 wave 里的位置，编号从 0 开始 | lane 编号只在该 wave 内有意义，可以用于执行掩码或跨 lane 通信 |
 
-需要注意，Grid、Block、Wavefront、Thread 是描述程序执行的概念，并不是四种独立的物理计算单元。
+以 Wave64 为例，同一 Block 内 `threadIdx.x = 0` 的线程是 **Wave 0 的 Lane 0**，`threadIdx.x = 64` 的线程是 **Wave 1 的 Lane 0**。它们是两个不同的线程，只是在各自 wave 里的位置相同。Grid、Block、wave 和线程描述的是程序怎样组织执行，承载这些工作的是 CU 等硬件资源。
 
 ## 主线案例 · 1000 个元素的向量加法
 
 本部分始终跟着 `C[i] = A[i] + B[i]` 走一遍。Host 提交一次 Kernel。我们设 `N=1000`、每 Block 256 个线程，使用 BW100 的 Wave64 举例。
 
+### Grid、Block 和 wave 哪些可以设置？
+
+启动 Kernel 时，程序员可以直接设置 **Grid 有多少个 Block**，也可以设置 **每个 Block 有多少个线程**。下面是本例的一维启动配置：
+
 ```cpp
+// 依次指定 Grid 的 Block 数、每个 Block 的线程数。
+// 接下来的两个 0 表示不额外申请动态 LDS、使用默认 stream。
+hipLaunchKernelGGL(tutorial_add, dim3(4), dim3(256), 0, 0,
+                   device_a, device_b, device_c, 1000);
+```
+
+| 数量 | 怎么得到 | 本例 |
+|---|---|---|
+| Grid 中的 Block 数 | 启动时直接传入，Kernel 内可用 `gridDim.x` 查看 | `dim3(4)` |
+| 每个 Block 的线程数 | 启动时直接传入，Kernel 内可用 `blockDim.x` 查看 | `dim3(256)` |
+| 每个 wave 的 lane 数 | 由目标设备的执行模式决定，可查询设备的 `warpSize` | 本例的 BW100 为 64 |
+| 每个 Block 的 wave 数 | 用 Block 的线程总数除以 wave 宽度，向上取整 | `ceil(256 / 64) = 4` |
+
+因此，**可以通过调整 Block 的线程数来改变每个 Block 的 wave 数**。普通 HIP launch 没有单独设置 wave 数或把 BW100 的 Wave64 改成其他宽度的参数。本例中，一个线程负责一个元素，所以在选定 256 线程后，程序用 `ceil(1000 / 256) = 4` 算出够用的 Block 数。最后一个 Block 多出来的线程由边界检查挡住。
+
+### 线程怎么找到自己要算的元素？
+
+```cpp
+// 将 Block 编号和 Block 内的线程编号合成全局索引。
 const int i = blockIdx.x * blockDim.x + threadIdx.x;
+// 4 × 256 个线程覆盖 1000 个元素，越界线程跳过读写。
 if (i < count) {
     c[i] = a[i] + b[i];
 }
 ```
 
 <MicroarchDiagram kind="mapping" />
+
+这里的「驻留」是指 Block 已被分配到某个 CU，并占用执行所需的硬件资源。两个 Block 即使驻留在同一个 CU，也各有自己的 Block 内同步范围。
 
 按一维索引展开，Block 3 对应 `i=768–1023`，前三个 wave 负责 192 个完整元素，最后一个 wave 覆盖 `960–1023`。其中 40 个元素在范围内，剩下 24 个线程走边界检查，任何一个 Block 分到哪个 CU、何时运行都由设备决定。即使 BW100 有 64 个 CU，本例也只提交了 4 个 Block。
 
@@ -91,7 +117,19 @@ hipcc -O3 -std=c++17 --offload-arch=gfx936 -save-temps vector_add_tutorial.hip -
 ./tutorial_add
 ```
 
-已在 BW100 实机确认 **1000 个有效输出正确，24 个边界位置保持原值**。`-save-temps` 同时导出设备端 ISA，[第 1.3 章](../03-memory/memory-hierarchy.md#跟一条加载指令)会用其中的加载和等待片段。
+### BW100 运行结果
+
+```text
+BW100 gfx936:sramecc+:xnack- | 4 blocks x 256 threads | wave size 64 | 1000 outputs verified, 24 untouched
+```
+
+设备报告的 wave 宽度是 64。程序在 CPU 上逐项检查输出，确认 **1000 个有效结果正确**，多启动的 **24 个线程没有改动输出数组末尾的初始值**。
+
+### 什么是设备端 ISA？
+
+**ISA** 是「指令集架构」，可以理解为一份规则，规定硬件认识哪些指令，以及每条指令做什么。这里的**设备端**指执行 Kernel 的 DCU。编译器会把 HIP C++ 写的 Kernel 翻译成它能执行的机器指令。
+
+`-save-temps` 会保留设备端的 `.s` 汇编文件，方便人读这些指令。例如，C++ 的一行 `c[i] = a[i] + b[i]` 会对应读入 A 和 B、等待数据、做加法、写回结果等步骤。[第 1.3 章](../03-memory/memory-hierarchy.md#跟一条加载指令)会展示本例实际生成的片段。
 
 ::: details 查看完整 HIP 示例
 
@@ -99,9 +137,9 @@ hipcc -O3 -std=c++17 --offload-arch=gfx936 -save-temps vector_add_tutorial.hip -
 
 :::
 
-::: details 复述题 · 把每个 Block 改成 128 个线程会怎样？
+::: details 复述题 · 保持 N=1000，每 Block 改成 128 个线程，需要几个 Block？
 
-仍以 Wave64 为例。Grid 变成 8 个 Block，每个 Block 2 个 wave。最后一个 Block 有 104 个有效线程，最后一个 wave 仍有 40 个有效元素。这里不预设 CU 的分配顺序。
+沿用本例「一个线程算一个元素」的写法，Grid 需要 **8 个 Block**（`ceil(1000 / 128)`）。在 BW100 的 Wave64 下，每个 Block 有 **2 个 wave**。最后一个 Block 从索引 896 开始，有 **104 个有效线程**，其中最后一个 wave 有 **40 个有效线程**。
 
 :::
 

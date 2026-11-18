@@ -21,7 +21,7 @@ defineProps<{ kind: 'mapping' | 'lanes' | 'compute' | 'memory' | 'latency' }>()
         <strong>硬件分配资源</strong>
         <p>任务分发逻辑按可用资源将 Block 分配到 CU。</p>
         <p class="boxed"><strong>示例 CU</strong><br>Block 3 的四个 wave 在同一 CU 上执行。</p>
-        <p>同一个 CU 可以驻留多个 Block，数量由资源决定。</p>
+        <p><strong class="residency-emphasis">同一个 CU 可以驻留多个 Block。</strong> 能同时驻留多少，取决于寄存器、LDS 等资源。</p>
       </section>
     </div>
     <figcaption>HIP 编程模型，采用 BW100 的 Wave64 举例。CU 编号和 Block 的实际执行顺序由设备决定。</figcaption>
@@ -125,6 +125,10 @@ defineProps<{ kind: 'mapping' | 'lanes' | 'compute' | 'memory' | 'latency' }>()
 
 .panel strong, .handoff {
   color: var(--vp-c-brand-1);
+}
+
+.panel .residency-emphasis {
+  color: var(--vp-c-danger-1);
 }
 
 .handoff {

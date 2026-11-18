@@ -110,7 +110,7 @@ $ python3 advanced/09_hygon_ops_and_stack.py
   [MISSING]   sglang
 ```
 
-### BW100 容器（`zk-migraphx`）实测输出解读
+### BW100 实验环境输出解读
 
 - **软件栈版本：** `torch 2.5.1`（`torch.version.hip = 6.3.26093`）、`triton 3.1.0`（`triton/backends/hcu/`）、`lightop 0.6.0`、`vllm 0.11.0`。
 - **底层共享库：**

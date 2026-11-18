@@ -52,7 +52,34 @@ import MicroarchDiagram from "../.vitepress/theme/MicroarchDiagram.vue"
 
 :::
 
-## 4. 思考题
+## 4. 动手实战 · 改 Block 大小，再向别人讲一遍
+
+回到 1.1 的向量加法，把每 Block 的线程数从 256 改成 128，元素总数仍为 1000。动手前先预测 Block 数、每个 Block 的 wave 数以及最后一个 wave 的有效 lane 数。
+
+下面从仓库根目录运行。命令在临时目录构建，方便保留 1.1 的版本。
+
+```bash
+work=$(mktemp -d)
+cp experiments/common.h "$work/"
+sed 's/constexpr int threads = 256;/constexpr int threads = 128;/' \
+  experiments/vector_add_tutorial.hip > "$work/vector_add_tutorial.hip"
+hipcc -O3 -std=c++17 --offload-arch=gfx936 "$work/vector_add_tutorial.hip" -o "$work/tutorial_add"
+"$work/tutorial_add"
+```
+
+BW100 实测输出如下。没有设备时也可以先手算，再用这行校对。
+
+```text
+BW100 gfx936:sramecc+:xnack- | 8 blocks x 128 threads | wave size 64 | 1000 outputs verified, 24 untouched
+```
+
+试着用三句话复述结果。
+
+1. **任务怎么分。** 每 Block 有两个 wave，最后一个 wave 仍从索引 960 开始，所以有 40 个有效 lane。
+2. **数据怎么走。** 有效线程加载自己的 A、B，等寄存器里的值就绪后做加法，把结果写到 C。尾部 24 个位置保留原值。
+3. **等待怎么藏。** 另一个驻留且就绪的 wave 可能在当前 wave 等待时发射。这里的输出验证任务分组和计算结果，性能还要像 1.4 那样单独测量。
+
+## 5. 思考题
 
 现在改做一个 `16×16×16` 的矩阵乘加 tile。A、B 的数据先由一个 Block 写入 LDS，再由其中一个 wave 读取。相比向量加法，数据怎样多走了一步？什么时候用 Block 屏障，什么时候等待加载？最后哪条执行路径做乘加？
 

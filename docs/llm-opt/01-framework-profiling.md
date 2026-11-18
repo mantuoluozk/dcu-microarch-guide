@@ -12,4 +12,4 @@
    - **Decode 阶段：** 重点关注小 Batch GEMV / MoE Grouped GEMM、PagedAttention KV Cache 访存带宽利用率与 TPOT（单 Token 生成延迟）。
 3. **热点 Kernel 清单输出：** 使用 `torch.profiler` 与 `hipprof` 导出 Top-10 耗时 Kernel，标注每个热点算子的 Roofline 区间（Compute-bound vs Memory-bound）及所用后端（`rocBLAS` / `lightop` / `Triton` / 框架原生 HIP）。
 
-*(待在 `zk-migraphx` 上跑通真实模型推理 Profiling 后补充实测数据与热点分布图。)*
+*待在 BW100 实验环境完成模型推理 Profiling 后补充实测数据与热点分布图。*

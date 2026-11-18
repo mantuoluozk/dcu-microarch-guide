@@ -70,7 +70,22 @@ Block 分到 CU 后，CU 会安排其中的 wave 执行。先拆开看这个计�
 
 向量加法在 BW100 上实际生成了向量比较和 `s_and_saveexec_b64`。它保存旧 EXEC，再用比较结果更新参与的 lane。含 `else` 的控制流可能分别用两组掩码执行两侧，再在汇合处恢复原掩码。全 wave 一致的条件有机会用标量分支，短分支也可能被编译成诸如 `v_cndmask_b32` 的谓词选择指令，性能要结合实际汇编判断。[向量加法编译命令](../01-overview/software-stack.md#动手运行) · [E03 分支实验](../labs/lab03-branch-divergence.md) · [LLVM AMDGPU 寄存器参考](https://llvm.org/docs/AMDGPUUsage.html)
 
-## 5. 思考题
+## 5. 动手实战 · 找出尾部线程的执行掩码
+
+先按 [1.1 向量加法](../01-overview/software-stack.md#动手运行)编译并运行。在同一个 `experiments/` 目录里，用下面的命令筛选 BW100 的设备汇编。没有设备时，直接读下面的两行实测片段。
+
+```bash
+grep -nE 'v_cmp|saveexec|global_load|global_store' *tutorial*-hip-amdgcn-*-gfx936.s
+```
+
+```asm
+v_cmp_gt_i32_e32  vcc, s1, v0
+s_and_saveexec_b64 s[0:1], vcc
+```
+
+这一对指令在本例中对应 `count > i`。先把逐 lane 的比较结果写入 VCC，再把它和原 EXEC 取交集。自己算一下最后一个 wave 哪些位会保留。这里的合法索引是 960–999，因此 EXEC 的低 40 位保留，高 24 位被清掉。后面的数组读写只由有效 lane 参与，1.1 的 `24 untouched` 是从主机端验证的结果。
+
+## 6. 思考题
 
 仍看向量加法的最后一个 wave。假设编译器先比较 `i < 1000`，再按比较结果更新 EXEC，哪几个 lane 会执行数组读写？数组里每个线程拿到的 `a[i]` 用 SGPR 还是 VGPR 表示更合适？
 

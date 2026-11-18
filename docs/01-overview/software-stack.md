@@ -77,9 +77,11 @@ if (i < count) {
 3. **执行。** CU 从驻留的 wave 中选择就绪指令发射。向量加法里的有效线程读取 A、B，做加法，写回 C。
 4. **完成。** Block 执行结束后释放资源。Host 可用同步调用或事件观察已提交工作何时完成。
 
-### 软件栈怎样接上设备
+::: details 进阶阅读 · 软件栈怎样接上设备
 
 应用可以直接用 HIP 提交手写 Kernel，也可以经由 PyTorch 等框架选择算子库（如 rocBLAS、lightop）或由 Triton 编译的 Kernel。Triton 编译会经过 TTIR、TTGIR 和 LLVM IR 等中间表示，再生成目标设备代码。常见的 DTK/HSA 路径中，Runtime 将 Kernel 派发信息写入设备队列中的 AQL 包，再用 doorbell 通知设备有新工作。驱动提供设备访问、队列和内存映射所需的支持。具体算子实际走了哪套实现，可以用 [Profiling 工具](../profiling/01-toolchain-overview.md) 查看派发记录。
+
+:::
 
 ### 硬件结构参考 {#_1-2-dcu-的物理硬件组织}
 
@@ -94,11 +96,11 @@ if (i < count) {
 
 这张图描述各部分的职责。具体 SIMD 组织、缓存共享范围和矩阵执行资源随目标而变。下一节拆开看 [CU 内的执行路径](../02-compute/cu-and-simt.md)。
 
-## 4. 动手运行与设备端指令 {#动手运行}
+## 4. 动手实战 · 跑通第一个向量加法 {#动手运行}
 
 **ISA**（Instruction Set Architecture，指令集架构）规定设备认识哪些指令、这些指令如何工作。编译器把 Kernel 翻译成目标 DCU 能执行的机器指令，`-save-temps` 保留人可读的设备端 `.s` 汇编文件。比如一行数组加法可能包含两次加载、等待、加法和写回。[1.3 的真实汇编片段](../03-memory/memory-hierarchy.md#跟一条加载指令)
 
-在仓库根目录执行。换卡时用设备属性确认目标架构和 wave 宽度。
+以下命令在 **装有 DTK 且能访问 DCU 的 Linux 终端**里执行，假设当前目录是教程仓库的根目录，也就是能看到 `experiments/` 的位置。先运行 `hipcc --version` 确认编译器可用，再用 `rocminfo` 找到设备条目。教程命令采用 BW100 的 `gfx936`，其他卡应当填自己的目标，并按实际 wave 宽度理解结果。[实验环境检查](../labs/lab-setup.md)
 
 ```bash
 cd experiments
@@ -113,6 +115,8 @@ BW100 gfx936:sramecc+:xnack- | 4 blocks x 256 threads | wave size 64 | 1000 outp
 ```
 
 程序在 Host 上逐项检查了 1000 个有效结果，并确认输出末尾 24 个预留位置保持原值。
+
+第一次阅读源码时，可以只找这几处。先找复制 A、B 的两行 `hipMemcpy(..., hipMemcpyHostToDevice)`，再找 `hipLaunchKernelGGL`，最后找 `hipMemcpyDeviceToHost`，看结果怎样回到 CPU。没有设备时，可以用上面的输出跟着手算，后续几节也提供相应的实测片段。
 
 ::: details 查看带注释的完整 HIP 示例
 

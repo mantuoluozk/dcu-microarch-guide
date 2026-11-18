@@ -51,7 +51,7 @@ def trace_loaded_libs():
             print(f"    {kw:<18s} -> {path}")
 ```
 
-### BW100 容器（`zk-migraphx`）实测输出
+### BW100 实验环境输出
 
 ```text
 $ python3 advanced/09_hygon_ops_and_stack.py

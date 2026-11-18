@@ -44,7 +44,27 @@ VGPR、SGPR 或 LDS 的用量跨过一个硬件分配档位，驻留上限可能
 
 用向量加法举例，A 和 B 的加载可以发出，随后的加法要等它们回来。调度器可以在资源允许时从其他 wave 选指令发射。更复杂的 Kernel 还可以在当前 wave 中穿插独立地址计算、下一次加载或已就绪的运算。Block 做完并释放资源后，设备可以继续分派其他待执行的 Block。
 
-## 3. 用 E04 看不同驻留下的独立加载链
+## 3. 动手实战 · 只改 LDS 预留量
+
+E04 中，每个线程沿一组地址读取，下一个地址由前一次读取的结果决定。这个练习固定每个线程只有一条链，改动每 Block 预留的 LDS。实验只预留这块 LDS，读取循环本身走全局内存。先预测 CU 可以同时容纳几个 Block，再从仓库根目录运行。
+
+```bash
+cd experiments
+hipcc -O3 -std=c++17 --offload-arch=gfx936 05_occupancy_and_ilp.hip -o 05_occupancy_and_ilp
+./05_occupancy_and_ilp 1 16
+./05_occupancy_and_ilp 1 32
+```
+
+`1` 是每线程的加载链数，第二个参数是每 Block 的 LDS 预留量（KiB）。输出中先比较 `max_blocks_per_CU` 和 `max_waves_per_CU`，再看五轮的 `ms` 和校验列。
+
+| LDS / Block | Block 上限 / CU | wave 上限 / CU | BW100 耗时中位数 |
+|---|---:|---:|---:|
+| 16 KiB | 4 | 16 | 约 0.121 ms |
+| 32 KiB | 2 | 8 | 约 0.230 ms |
+
+两组都应输出 `pass`。每个 Block 有四个 wave，可以用第二列乘以 4 验算第三列。驻留上限来自 HIP API。预留更多 LDS 后，可供 CU 调度的 wave 上限下降，实测耗时上升。后面会看到，把更多独立工作放进一个 wave 也能改变耗时。
+
+::: details 进阶阅读 · 增加同一个 wave 内的独立工作
 
 ![BW100 独立加载链对照。4 wave/CU 的驻留上限下 8 条链最快，32 wave/CU 的驻留上限下 2 条链最快。](/data/bw100-20261118/figures/e04-occupancy-ilp.png)
 
@@ -52,7 +72,11 @@ E04 用动态 LDS 改变驻留上限，每个线程始终读同一组 64 个节�
 
 寄存器用量的变化同样要看整条路径。E09 只把 `BK` 从 32 降到 16，报告的 VGPR 从 144 降到 112，LDS 仍为 8704 B，scratch 仍为 0，耗时却从 1.4120 ms 增至 1.4973 ms。[E09 GEMM 消融](../labs/lab07-triton-gemm-vs-rocblas.md)
 
-## 4. 用 Roofline 估算性能上限 {#_6-5-roofline-模型与-bw100-对照}
+:::
+
+## 4. 进阶阅读 · 用 Roofline 估算性能上限 {#_6-5-roofline-模型与-bw100-对照}
+
+::: details 查看 Roofline 计算
 
 把运算量记为 $F$，实际 HBM 读写字节数记为 $B_\mathrm{HBM}$。**计算强度** $I=F/B_\mathrm{HBM}$ 表示每搬一字节做多少运算。Roofline 用计算吞吐和带宽约束估算上限：
 
@@ -62,13 +86,11 @@ $$
 
 两条上限相交的位置为 $P_\mathrm{compute}/BW_\mathrm{HBM}$。靠近哪条线可以帮助提出瓶颈假设，再用资源、计数器和消融验证。
 
-::: warning 计算强度的字节数要用同一口径
-
 BW100 上，E07 的 MMAC 指令微基准为 333.49 TFLOPS，E01 的向量拷贝有效带宽为 1.367 TB/s，两者相除约为 **244 FLOPs/B**。E01 采用逻辑读写字节，因此这个数字是经验参考。严格的 HBM Roofline 需要实测的 HBM 流量。
 
-:::
-
 E09 的 `4096³` GEMM 若按 A、B 各读一次与 C 写一次计算，约为 1365 FLOPs/逻辑字节。若要在严格的 HBM Roofline 上定位，还要测实际流量。[BW100 实测档案](../baselines/bw100-gfx936.md)
+
+:::
 
 ## 5. 思考题
 

@@ -100,7 +100,22 @@ if (i < count) {
 
 **ISA**（Instruction Set Architecture，指令集架构）规定设备认识哪些指令、这些指令如何工作。编译器把 Kernel 翻译成目标 DCU 能执行的机器指令，`-save-temps` 保留人可读的设备端 `.s` 汇编文件。比如一行数组加法可能包含两次加载、等待、加法和写回。[1.3 的真实汇编片段](../03-memory/memory-hierarchy.md#跟一条加载指令)
 
-以下命令在 **装有 DTK 且能访问 DCU 的 Linux 终端**里执行，假设当前目录是教程仓库的根目录，也就是能看到 `experiments/` 的位置。先运行 `hipcc --version` 确认编译器可用，再用 `rocminfo` 找到设备条目。教程命令采用 BW100 的 `gfx936`，其他卡应当填自己的目标，并按实际 wave 宽度理解结果。[实验环境检查](../labs/lab-setup.md)
+第一次跟练需要一台能访问 DCU、已安装 DTK 的 Linux 机器。在终端运行下面两条命令获取教程源码。已有仓库的读者直接进入仓库根目录即可。
+
+```bash
+git clone https://github.com/mantuoluozk/dcu-microarch-guide.git
+cd dcu-microarch-guide
+```
+
+先确认目录和设备。第一条命令应列出示例文件；第二条显示编译器版本。最后一条会列出多个设备，请找到同一设备条目下的 BW100 和 gfx936。若终端找不到 hipcc，请先加载这台机器的 DTK 环境。[实验环境检查](../labs/lab-setup.md)
+
+```bash
+ls experiments/vector_add_tutorial.hip
+hipcc --version
+rocminfo | grep -E 'Name:|Wavefront Size:'
+```
+
+进入示例目录并编译。下面的目标 gfx936 对应 BW100，其他设备请填自己的编译目标。
 
 ```bash
 cd experiments

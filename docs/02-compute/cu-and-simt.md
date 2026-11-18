@@ -54,7 +54,13 @@ Block 分到 CU 后，CU 会安排其中的 wave 执行。先拆开看这个计�
 - **SIMT**（Single Instruction, Multiple Threads，单指令多线程）描述编程模型。HIP 里每个线程有自己的编号和数据，硬件把同一个 wave 中参与的线程组织在一条指令流中。
 - **SIMD**（Single Instruction, Multiple Data，单指令多数据）描述执行方式。一条指令对多份数据做同一种操作。向量加法里，参与的 lane 执行同一种加法，各自用自己的操作数。
 
-在一维 Block 中，`wave_id = threadIdx.x / warpSize`，`lane_id = threadIdx.x % warpSize`。在 BW100 的 Wave64 上，线程 130 是 **Wave 2 的 Lane 2**。例如，早期部分 GCN 的 SIMD 物理宽度是 16，一条覆盖 64 个逻辑 lane 的普通向量指令可能分成数批处理。观察 BW100 时要分别核对 wave 的逻辑宽度、具体指令的物理执行方式、等待结果的延迟、以及单位时间能完成的吞吐。[HIP 编程模型](https://rocm.docs.amd.com/projects/HIP/en/docs-6.3.3/understand/programming_model.html)
+在一维 Block 中，`wave_id = threadIdx.x / warpSize`，`lane_id = threadIdx.x % warpSize`。在 BW100 的 Wave64 上，线程 130 是 **Wave 2 的 Lane 2**。最后一个 wave 从索引 960 开始。索引 999 对应 Lane 39，会写入结果；紧挨着的索引 1000 对应 Lane 40，已经越界。同一条写指令怎样只让前者参与？下一段的 EXEC 记录了这个选择。
+
+::: details 进阶阅读 · 一个 wave 与物理执行宽度
+
+早期部分 GCN 的 SIMD 物理宽度是 16，一条覆盖 64 个逻辑 lane 的普通向量指令可能分成数批处理。观察 BW100 时要分别核对 wave 的逻辑宽度、具体指令的物理执行方式、等待结果的延迟、以及单位时间能完成的吞吐。[HIP 编程模型](https://rocm.docs.amd.com/projects/HIP/en/docs-6.3.3/understand/programming_model.html)
+
+:::
 
 ## 4. 尾部 wave 如何处理不同条件 {#一个-wave-怎么执行}
 

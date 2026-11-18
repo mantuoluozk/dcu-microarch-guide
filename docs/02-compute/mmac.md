@@ -50,30 +50,42 @@ v_mmac_f32_16x16x16_f16 v[1:4], v[5:6], v[7:8], v[1:4]
 
 要确认是否使用了矩阵指令，可以从 HIP 内置函数或 Triton 的 `tl.dot` 追到导出的 `.s`。查看**实际生成的指令、输入与累加类型、资源用量**。不同 DCU 目标支持的形状和指令语义应分别核对。
 
-## 4. 怎样读延迟和吞吐
+## 4. 动手实战 · 手算一个元素，再校验整块
+
+在 BW100 上启动一个 64 线程的 Block，用一条矩阵指令计算整个 16×16 输出块。输入按固定规则生成：A 的第 r 行、第 k 列取值为 `2*r+k`，B 是单位矩阵（对角线为 1，其余为 0），初始部分和 C 的每个元素都为 1。行、列下标从 0 开始。
+
+先算 D[2,3]。取 A 的第 2 行和 B 的第 3 列相乘，只有 k=3 那一项留下来。加上初始部分和，得到 `(2×2+3)×1+1 = 8`。现在从仓库根目录运行。
+
+```bash
+cd experiments
+hipcc -O3 -std=c++17 --offload-arch=gfx936 -save-temps tutorial_mmac_tile.hip -o tutorial_mmac_tile
+./tutorial_mmac_tile
+grep -m 1 'v_mmac_f32_16x16x16_f16' tutorial_mmac_tile-hip-amdgcn-*-gfx936.s
+```
+
+BW100 的输出和对应指令如下。
+
+```text
+D[2,3] = 8 | 256 outputs verified
+```
+
+```asm
+v_mmac_f32_16x16x16_f16 v[0:3], v[4:5], v[6:7], v[0:3]
+```
+
+CPU 按行、列和 k 三层循环独立计算参考值，逐项比较 256 个结果。汇编中间的两个寄存器范围提供 A、B 的 FP16 片段，最右侧提供已有的 FP32 部分和，最左侧接收更新后的结果。每个 lane 写回四个值，64 个 lane 合起来写满整个输出块。
+
+::: details 查看完整的校验程序
+
+<<< ../../experiments/tutorial_mmac_tile.hip{cpp}
+
+:::
+
+## 5. 怎样读延迟和吞吐
 
 - **依赖延迟**看同一个累加结果多久后可被下一条指令使用。E07 在这条依赖链上测得约 **10.01 clock64 tick/指令**，包含实验测量开销。
 - **稳态吞吐**看独立工作足够多时，单位时间能完成多少运算。E07 用八条独立累加链，测得这条指令约 **333.49 TFLOPS**。
 - **算子性能**还受 tile 的加载、布局重排、驻留条件和写回影响。E09 测的是完整 GEMM，使用各配置的独立计时和 PMC。[E07 指令微基准](../labs/lab09-mmac-builtin-and-valu.md) · [E09 GEMM](../labs/lab07-triton-gemm-vs-rocblas.md)
-
-## 5. 动手实战 · 在汇编里找到矩阵乘加
-
-从仓库根目录运行。这个例子需要支持该内置函数的 BW100 和 DTK。先让编译器保留设备汇编，再运行 E07 测试。
-
-```bash
-cd experiments
-hipcc -O3 -std=c++17 --offload-arch=gfx936 -save-temps 08_mmac_builtin_bench.hip -o 08_mmac_builtin_bench
-grep -m 1 'v_mmac_f32_16x16x16_f16' *mmac*-hip-amdgcn-*-gfx936.s
-./08_mmac_builtin_bench
-```
-
-第一处匹配在本次实测中是下面这一行。没有设备时，可以用这行完成同样的读指令练习。
-
-```asm
-v_mmac_f32_16x16x16_f16 v[17:20], v[33:34], v[35:36], v[17:20]
-```
-
-先读指令名里的 `16x16x16`，分别找出 M、N 和 K。接着找出 A、B 和部分和。两个输入占 `v[33:34]`、`v[35:36]`，这条指令读写同一组部分和 `v[17:20]`。寄存器编号由编译器分配。程序最后输出的两项 MMAC 数值分别用来观察吞吐和依赖延迟，本次 BW100 复测约为 **333.5 TFLOPS** 和 **10.0 tick/指令**。[E07 实验源码与计时方法](../labs/lab09-mmac-builtin-and-valu.md)
 
 ## 6. 思考题
 

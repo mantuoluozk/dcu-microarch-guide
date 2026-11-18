@@ -18,9 +18,9 @@ import MicroarchDiagram from "../.vitepress/theme/MicroarchDiagram.vue"
 
 ## 1. CU 最多能驻留多少 Block
 
-Block 需要 wave 驻留槽位、一定数量的寄存器，以及程序申请的 LDS。单个资源通常给出一个上限，整体还要同时满足其他资源约束。例如，只看容量为 64 KiB 的 LDS：
+Block 需要 wave 驻留槽位、一定数量的寄存器，以及程序申请的 LDS。单个资源通常给出一个上限，整体还要同时满足其他资源约束。先只考虑 LDS。1.3 的 64 KiB 是设备报告的单 Block 申请上限，决定一次申请能否满足这一项限制。下面估算同时驻留多少个 Block，需要用整个 CU 可供分配的 LDS 容量除以每个 Block 的申请量，结果向下取整。
 
-| 每 Block 申请的 LDS | LDS 容量能容纳的 Block 数 |
+| 每 Block 申请的 LDS | 假设每 CU 有 64 KiB LDS，可容纳的 Block 数 |
 |---|---:|
 | 16 KiB | 4 |
 | 32 KiB | 2 |

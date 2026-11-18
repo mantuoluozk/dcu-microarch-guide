@@ -24,7 +24,28 @@ import MicroarchDiagram from "../.vitepress/theme/MicroarchDiagram.vue"
 
 <MicroarchDiagram kind="memory" />
 
-## 2. BW100 的 L1 和 L2 有多大
+## 2. 从全局地址到加法 {#跟一条加载指令}
+
+先看一行 HIP 代码 `c[i] = a[i] + b[i]`。按 [1.1 的命令](../01-overview/software-stack.md#动手运行)编译后，在 BW100 的设备汇编里可以沿着寄存器找这五步。以下片段省略了地址计算等指令。
+
+```asm
+global_load_dword  v4, v[2:3], off
+; 此处省略了为第二个输入数组计算地址的指令，v[2:3] 已更新
+global_load_dword  v2, v[2:3], off
+s_waitcnt vmcnt(0)
+v_add_f32_e32      v2, v4, v2
+global_store_dword v[0:1], v2, off
+```
+
+1. 两条 `global_load_dword` 分别读取 A、B，把结果带回 `v4`、`v2`。每个有效 lane 都有自己的数据。
+2. `s_waitcnt vmcnt(0)` 等这个 wave 的相关向量访存完成。发出加载指令到数据可用之间有一段时间。
+3. `v_add_f32_e32` 读取这两个值，把加法结果放回 `v2`，`global_store_dword` 再把它写到 C。
+
+回到线程 7。主机把 A 初始化为下标，把 B 初始化为下标的两倍，因此这两个输入是 7 和 14。等它们到齐后，加法得到 21，写回 C[7]。沿着汇编可以确定数据进入哪个寄存器；要知道加载可能在哪一级缓存命中，还要看设备和访问方式。
+
+像这样按 lane 访问数组的加载称为向量访存（VMEM）。如果编译器能证明一个地址和结果由整个 wave 共用，也可使用标量访存（SMEM），例如 E06 的 `s_load_dword`。想练习跟踪指令，可以在 1.1 生成的设备端 `.s` 中圈出两次加载的目标寄存器，再看加法是否读取了它们。
+
+## 3. BW100 的 L1 和 L2 有多大
 
 在 **BW100（gfx936）、DTK 26.04** 上，`rocminfo` 的 BW100 设备条目打印 `L1: 32 KB` 和 `L2: 8192 KB`。按二进制单位写就是 **32 KiB** 和 **8 MiB**。其中 L2 也与 [HIP 设备属性记录](../baselines/bw100-gfx936.md)一致。
 
@@ -55,24 +76,6 @@ grep -h -E '^(level|size|type) ' /sys/class/kfd/kfd/topology/nodes/"$node"/cache
 每行开头是同类记录的数量，`level` 是缓存级别，`size` 在此报告以 KiB 计。`type 9` 对应设备数据缓存，`type 10` 对应设备指令缓存。
 
 :::
-
-## 3. 从全局地址到加法 {#跟一条加载指令}
-
-先看一行 HIP 代码 `c[i] = a[i] + b[i]`。按 [1.1 的命令](../01-overview/software-stack.md#动手运行)编译后，在 BW100 的设备汇编里可以沿着寄存器找这五步。以下片段省略了地址计算等指令。
-
-```asm
-global_load_dword  v4, v[2:3], off
-global_load_dword  v2, v[2:3], off
-s_waitcnt vmcnt(0)
-v_add_f32_e32      v2, v4, v2
-global_store_dword v[0:1], v2, off
-```
-
-1. 两条 `global_load_dword` 分别读取 A、B，把结果带回 `v4`、`v2`。每个有效 lane 都有自己的数据。
-2. `s_waitcnt vmcnt(0)` 等这个 wave 的相关向量访存完成。发出加载指令到数据可用之间有一段时间。
-3. `v_add_f32_e32` 读取这两个值，把加法结果放回 `v2`，`global_store_dword` 再把它写到 C。
-
-像这样按 lane 访问数组的加载称为向量访存（VMEM）。如果编译器能证明一个地址和结果由整个 wave 共用，也可使用标量访存（SMEM），例如 E06 的 `s_load_dword`。想练习跟踪指令，可以在 1.1 生成的设备端 `.s` 中圈出两次加载的目标寄存器，再看加法是否读取了它们。
 
 ## 4. 谁在等什么 {#区分三种等待}
 

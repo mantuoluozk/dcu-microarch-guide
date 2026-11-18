@@ -23,7 +23,7 @@ make 04_branch_divergence && ./04_branch_divergence
 ```
 
 > **源码：** [04_branch_divergence.hip](https://github.com/mantuoluozk/dcu-microarch-guide/blob/main/experiments/04_branch_divergence.hip)  
-> **关联理论：** [第 2 章：SIMT 分支发散与 EXEC / VCC / SCC](../02-compute/cu-and-simt.md)
+> **关联理论：** [1.2 尾部 wave 与 EXEC / VCC / SCC](../02-compute/cu-and-simt.md#一个-wave-怎么执行)
 
 ## 实验原理：硬件如何处理 Wavefront 内的 `if / else`？
 

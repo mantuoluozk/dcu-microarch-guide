@@ -23,7 +23,7 @@ python3 10_lightop_vs_triton_pytorch.py
 ```
 
 > **源码：** [07_triton_fused_rmsnorm.py](https://github.com/mantuoluozk/dcu-microarch-guide/blob/main/experiments/advanced/07_triton_fused_rmsnorm.py) & [10_lightop_vs_triton_pytorch.py](https://github.com/mantuoluozk/dcu-microarch-guide/blob/main/experiments/advanced/10_lightop_vs_triton_pytorch.py)  
-> **关联理论：** [第 4 章：Roofline 模型](../04-scheduling/occupancy-and-roofline.md)
+> **关联理论：** [1.4 Roofline 性能上限](../04-scheduling/occupancy-and-roofline.md#_6-5-roofline-模型与-bw100-对照)
 
 ## 实验原理：为什么 RMSNorm 的核心是“减少 HBM 往返”？
 

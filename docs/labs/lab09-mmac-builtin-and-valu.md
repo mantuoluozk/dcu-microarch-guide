@@ -23,7 +23,7 @@ hipcc -O3 -std=c++17 --offload-arch=gfx936 08_mmac_builtin_bench.hip -o 08_mmac_
 
 > **源码：** [08_mmac_builtin_bench.hip](https://github.com/mantuoluozk/dcu-microarch-guide/blob/main/experiments/08_mmac_builtin_bench.hip)
 >
-> **关联理论：** [第 2 章：MMAC 矩阵计算能力](../02-compute/cu-and-simt.md)
+> **关联理论：** [1.5 MMAC 矩阵乘加](../02-compute/mmac.md)
 
 ## 小白也能懂的原理：普通“算盘” vs 矩阵“印钞机”
 

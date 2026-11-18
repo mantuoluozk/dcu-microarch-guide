@@ -18,13 +18,14 @@
 
 ### 第一部分：DCU 微架构原理
 
-每章先讲基础概念，再用同一个 1000 元素的向量加法串起这些概念。读完后合上教程，用三张白板图讲清楚任务、数据和等待。
+前四节用同一个 1000 元素的向量加法串起执行模型、计算路径、存储和调度。第五节用独立例子讲 MMAC，最后用三张白板图复盘。每节有一道思考题。
 
 1. [1.1 从 Kernel 启动到 CU](01-overview/software-stack.md) — 手算 Grid、Block、wave 和尾部有效线程。
-2. [1.2 CU、Wavefront 与计算路径](02-compute/cu-and-simt.md) — 识别 SALU、VALU、MMAC 和 lane 执行掩码。
+2. [1.2 CU、Wavefront 与计算路径](02-compute/cu-and-simt.md) — 从 CU 内的 ALU 和寄存器讲到 SIMT、SIMD 与执行掩码。
 3. [1.3 数据路径、缓存与同步](03-memory/memory-hierarchy.md) — 沿实际 ISA 读出加载、等待、计算与写回。
 4. [1.4 调度、Occupancy 与延迟隐藏](04-scheduling/occupancy-and-roofline.md) — 用 E04 数据解释驻留和独立加载链。
-5. [1.5 三分钟白板复述](01-overview/whiteboard-review.md) — 画图、脱稿讲解，再用变式题检查理解。
+5. [1.5 MMAC 矩阵乘加](02-compute/mmac.md) — 看一个 wave 如何协作计算矩阵块。
+6. [1.6 三分钟白板复述](01-overview/whiteboard-review.md) — 自己画图，再展开参考和综合题答案。
 
 ### 第二部分：Profiling 与性能分析工具链
 1. [2.1 工具链全景与软件栈探测](profiling/01-toolchain-overview.md) — `torch.profiler`、`hipprof`、ISA 导出与容器软件栈/硬件规格探测。

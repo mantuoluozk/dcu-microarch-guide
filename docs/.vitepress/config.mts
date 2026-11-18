@@ -73,7 +73,8 @@ export default defineConfig({
           { text: '1.2 CU、Wavefront 与计算路径', link: '/02-compute/cu-and-simt' },
           { text: '1.3 数据路径、缓存与同步', link: '/03-memory/memory-hierarchy' },
           { text: '1.4 调度与延迟隐藏', link: '/04-scheduling/occupancy-and-roofline' },
-          { text: '1.5 三分钟白板复述', link: '/01-overview/whiteboard-review' }
+          { text: '1.5 MMAC 矩阵乘加', link: '/02-compute/mmac' },
+          { text: '1.6 三分钟白板复述', link: '/01-overview/whiteboard-review' }
         ]
       },
       {

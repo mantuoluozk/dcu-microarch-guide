@@ -21,7 +21,7 @@ make 06_shuffle_vs_lds && ./06_shuffle_vs_lds
 ```
 
 > **源码：** [06_shuffle_vs_lds.hip](https://github.com/mantuoluozk/dcu-microarch-guide/blob/main/experiments/06_shuffle_vs_lds.hip)  
-> **关联理论：** [第 3 章：Wavefront 内跨 Lane 通信（Shuffle / DPP）](../03-memory/memory-hierarchy.md)
+> **关联理论：** [1.3 Block 屏障与 wave 内 Shuffle](../03-memory/memory-hierarchy.md#区分三种等待)
 
 ## 实验原理：什么时候根本不需要写回 LDS？
 

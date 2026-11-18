@@ -1,0 +1,4 @@
+=== Exp 9: VALU vs HCU Builtin MMAC Peak & Latency (BW100, CU=64) ===
+  VALU FP32 Peak   :   0.8499 ms |   20.21 TFLOPS
+  MMAC 16x16x16 FP16:   3.2970 ms |  333.49 TFLOPS (16.50x vs VALU FP32)
+  MMAC 16x16x16 Dependent Latency : 10.01 cycles / instruction

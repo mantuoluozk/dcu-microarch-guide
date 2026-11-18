@@ -32,73 +32,21 @@ hipprof --codeobj-analyze my_kernel.hsaco
 
 ---
 
-## 2. 自研工具：`parse_hipprof_pmc.py`
+## 2. 按配置采集并解析 PMC
 
-`hipprof --pmc --pmc-type 3` 导出的 CSV 包含数百列（L2 分 32 通道、TA 分 16 通道）。为了快速横向对比多个 Kernel，我们编写了自动汇总解析脚本：
+先把参数或实现变体拆成独立采集，再用解析器读取每份 CSV。解析器按 kernel 名称和资源字段分组，汇总每组最后五条记录，缺失字段显示为 `N/A`。同名、同资源的变体仍需分开采集。可用预期 dispatch 数量检查某份 CSV 是否包含了指定的采集样本。
 
-```python title="experiments/parse_hipprof_pmc.py"
-import csv
-import sys
-from collections import defaultdict
-
-
-def sum_prefix(row, prefix):
-    total = 0
-    for k, v in row.items():
-        if k.startswith(prefix + "["):
-            try:
-                total += int(v)
-            except ValueError:
-                pass
-    return total
-
-
-def main():
-    if len(sys.argv) < 2:
-        raise SystemExit("Usage: python3 parse_hipprof_pmc.py <pmc.csv>")
-
-    path = sys.argv[1]
-    grouped = defaultdict(list)
-    with open(path, "r", encoding="utf-8", errors="ignore") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            grouped[row.get("KernelName", "unknown")].append(row)
-
-    print(f"=== PMC Summary: {path} ({len(grouped)} unique kernels) ===")
-    for kname, rows in grouped.items():
-        sample = rows[-5:] if len(rows) > 5 else rows
-        n = len(sample)
-
-        def avg_int(col):
-            return sum(int(r.get(col, 0) or 0) for r in sample) / n
-
-        def avg_pref(pref):
-            return sum(sum_prefix(r, pref) for r in sample) / n
-
-        dur_us = sum((int(r["EndNs"]) - int(r["BeginNs"])) / 1e3 for r in sample) / n
-        tcc_hit = avg_pref("TCC_HIT")
-        tcc_miss = avg_pref("TCC_MISS")
-        l2_hit_rate = (tcc_hit / (tcc_hit + tcc_miss) * 100.0) if (tcc_hit + tcc_miss) > 0 else 0.0
-
-        r0 = sample[0]
-        short_name = kname if len(kname) <= 68 else kname[:65] + "..."
-        print(f"\nKernel: {short_name} (calls={len(rows)})")
-        print(f"  Grid={r0.get('grd')} | Block={r0.get('wgr')} | LDS={r0.get('lds')}B | "
-              f"Scratch={r0.get('scr')}B | VGPR={r0.get('arch_vgpr')} | SGPR={r0.get('sgpr')}")
-        print(f"  Avg Kernel Time      : {dur_us:10.2f} us | GRBM_GUI_ACTIVE = {avg_int('GRBM_GUI_ACTIVE'):,.0f}")
-        print(f"  Insts (VALU/LDS/Rd/Wr): {avg_int('SQ_INSTS_VALU'):,.0f} / "
-              f"{avg_int('SQ_INSTS_LDS'):,.0f} / "
-              f"{avg_int('SQ_INSTS_VMEM_RD'):,.0f} / "
-              f"{avg_int('SQ_INSTS_VMEM_WR'):,.0f}")
-        print(f"  SQ_LDS_BANK_CONFLICT : {avg_int('SQ_LDS_BANK_CONFLICT'):,.0f} | "
-              f"SQ_WAIT_INST_LDS = {avg_int('SQ_WAIT_INST_LDS'):,.0f}")
-        print(f"  L2 (TCC) Hit / Miss  : {tcc_hit:,.0f} / {tcc_miss:,.0f} (Hit Rate = {l2_hit_rate:.2f}%)")
-        print(f"  TCP_TA_DATA_STALL    : {avg_pref('TCP_TCP_TA_DATA_STALL_CYCLES'):,.0f}")
-
-
-if __name__ == "__main__":
-    main()
+```bash
+python3 experiments/parse_hipprof_pmc.py e09-base-pmc.csv --kernel gemm_kernel --expect-dispatches 6
 ```
+
+归因时确认计数器的设备、单位和聚合范围。跨 CU 或通道求和的计数应按相同工作量比较。对于 GEMM，把无 profiler 计时、静态 ISA 和 PMC 保持为同一配置的三份证据。见 [E09](../labs/lab07-triton-gemm-vs-rocblas.md)。
+
+::: details 查看解析器源码
+
+<<< ../../experiments/parse_hipprof_pmc.py
+
+:::
 
 ### 扩展工具规划（待补充）
 - [ ] **自动化多版本 Diff 工具**：直接对比优化前后两份 `hipprof` CSV，高亮耗时、Spill、Bank Conflict 与 Stall 变化百分比。

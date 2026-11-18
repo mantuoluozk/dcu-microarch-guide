@@ -1,11 +1,16 @@
 #include "common.h"
 
-__global__ void copy_float_coalesced(const float* __restrict__ src,
-                                     float* __restrict__ dst,
-                                     int n) {
+// Both arms of the vectorization test launch N/4 threads and copy N floats.
+__global__ void copy_scalar_x4(const float* __restrict__ src,
+                               float* __restrict__ dst,
+                               int plane_size) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < n) {
-        dst[idx] = src[idx];
+    if (idx < plane_size) {
+        #pragma unroll
+        for (int plane = 0; plane < 4; ++plane) {
+            int offset = idx + plane * plane_size;
+            dst[offset] = src[offset];
+        }
     }
 }
 
@@ -20,62 +25,88 @@ __global__ void copy_float4_coalesced(const float4* __restrict__ src,
 
 __global__ void copy_float_strided(const float* __restrict__ src,
                                    float* __restrict__ dst,
-                                   int n,
-                                   int stride) {
+                                   unsigned column_bits,
+                                   unsigned row_bits) {
+    unsigned idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned column = idx & ((1u << column_bits) - 1);
+    unsigned row = idx >> column_bits;
+    // Rotate index bits. Each address has exactly one writer in every variant.
+    unsigned offset = (column << row_bits) | row;
+    dst[offset] = src[offset];
+}
+
+__global__ void init_input(float* src, int n) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
-        // Modulo by power-of-two n keeps all accesses in-bounds while forcing strided pattern
-        int s_idx = static_cast<int>((static_cast<long long>(idx) * stride) & (n - 1));
-        dst[s_idx] = src[s_idx];
+        src[idx] = static_cast<float>(idx / 16 + 1);
+    }
+}
+
+__global__ void check_copy(const float* src, const float* dst, int n, int* failed) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n && src[idx] != dst[idx]) {
+        atomicExch(failed, 1);
     }
 }
 
 int main() {
-    // 64M floats = 256 MB per buffer (exceeds L2 cache)
-    constexpr int N = 1 << 26;
-    constexpr size_t bytes = static_cast<size_t>(N) * sizeof(float);
-
-    float *d_src = nullptr, *d_dst = nullptr;
-    HIP_CHECK(hipMalloc(&d_src, bytes));
-    HIP_CHECK(hipMalloc(&d_dst, bytes));
-    HIP_CHECK(hipMemset(d_src, 1, bytes));
-
+    constexpr unsigned index_bits = 26;
+    constexpr int elements = 1 << index_bits;
     constexpr int block_size = 256;
-    const int grid_f1 = (N + block_size - 1) / block_size;
-    const int n4 = N / 4;
-    const int grid_f4 = (n4 + block_size - 1) / block_size;
+    constexpr size_t bytes = static_cast<size_t>(elements) * sizeof(float);
+    constexpr int scalar_grid = elements / block_size;
+    constexpr int vector_grid = scalar_grid / 4;
 
-    auto report = [&](const char* name, float ms) {
-        // Effective bandwidth = read + write = 2 * bytes
-        double gbs = (2.0 * bytes / 1e9) / (ms / 1e3);
-        std::printf("  %-26s : %8.4f ms | %8.2f GB/s\n", name, ms, gbs);
+    float *src = nullptr, *dst = nullptr;
+    int* failed = nullptr;
+    HIP_CHECK(hipMalloc(&src, bytes));
+    HIP_CHECK(hipMalloc(&dst, bytes));
+    HIP_CHECK(hipMalloc(&failed, sizeof(int)));
+    hipLaunchKernelGGL(init_input, dim3(scalar_grid), dim3(block_size), 0, 0, src, elements);
+    HIP_CHECK(hipGetLastError());
+
+    auto measure = [&](const char* label, auto launch) {
+        HIP_CHECK(hipMemset(dst, 0, bytes));
+        launch();
+        HIP_CHECK(hipGetLastError());
+        HIP_CHECK(hipMemset(failed, 0, sizeof(int)));
+        hipLaunchKernelGGL(check_copy, dim3(scalar_grid), dim3(block_size), 0, 0,
+                           src, dst, elements, failed);
+        HIP_CHECK(hipGetLastError());
+        int host_failed = 0;
+        HIP_CHECK(hipMemcpy(&host_failed, failed, sizeof(int), hipMemcpyDeviceToHost));
+        if (host_failed) {
+            std::fprintf(stderr, "%s failed full-buffer validation\n", label);
+            std::exit(EXIT_FAILURE);
+        }
+        for (int sample = 1; sample <= 5; ++sample) {
+            float ms = benchmark_kernel(launch);
+            HIP_CHECK(hipGetLastError());
+            double gbs = (2.0 * bytes / 1e9) / (ms / 1e3);
+            std::printf("%s,%d,%.6f,%.2f,pass\n", label, sample, ms, gbs);
+        }
     };
 
-    std::printf("=== Exp 2: Global Memory Coalescing & Vectorization (256MB copy) ===\n");
-    report("Coalesced float  (32-bit)", benchmark_kernel([&]() {
-        hipLaunchKernelGGL(copy_float_coalesced, dim3(grid_f1), dim3(block_size), 0, 0,
-                           d_src, d_dst, N);
-    }));
-
-    report("Coalesced float4 (128-bit)", benchmark_kernel([&]() {
-        hipLaunchKernelGGL(copy_float4_coalesced, dim3(grid_f4), dim3(block_size), 0, 0,
-                           reinterpret_cast<const float4*>(d_src),
-                           reinterpret_cast<float4*>(d_dst), n4);
-    }));
-
-    // Note: odd stride is coprime with power-of-two N, so it visits all elements without collision;
-    // even strides test cache-line waste with power-of-two striding.
-    const int strides[] = {2, 4, 8, 16, 32};
-    for (int s : strides) {
-        char label[64];
-        std::snprintf(label, sizeof(label), "Strided float (stride=%d)", s);
-        report(label, benchmark_kernel([&]() {
-            hipLaunchKernelGGL(copy_float_strided, dim3(grid_f1), dim3(block_size), 0, 0,
-                               d_src, d_dst, N, s);
-        }));
+    std::puts("variant,sample,ms,effective_GB_per_s,validation");
+    measure("scalar_x4", [&]() {
+        hipLaunchKernelGGL(copy_scalar_x4, dim3(vector_grid), dim3(block_size), 0, 0,
+                           src, dst, elements / 4);
+    });
+    measure("float4", [&]() {
+        hipLaunchKernelGGL(copy_float4_coalesced, dim3(vector_grid), dim3(block_size), 0, 0,
+                           reinterpret_cast<const float4*>(src),
+                           reinterpret_cast<float4*>(dst), elements / 4);
+    });
+    for (unsigned bits = 0; bits <= 5; ++bits) {
+        char label[32];
+        std::snprintf(label, sizeof(label), "stride_%u", 1u << bits);
+        measure(label, [&]() {
+            hipLaunchKernelGGL(copy_float_strided, dim3(scalar_grid), dim3(block_size), 0, 0,
+                               src, dst, index_bits - bits, bits);
+        });
     }
 
-    HIP_CHECK(hipFree(d_src));
-    HIP_CHECK(hipFree(d_dst));
-    return 0;
+    HIP_CHECK(hipFree(failed));
+    HIP_CHECK(hipFree(src));
+    HIP_CHECK(hipFree(dst));
 }

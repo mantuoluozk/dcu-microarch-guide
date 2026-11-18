@@ -1,10 +1,10 @@
 """
-Exp 8: Triton GEMM (tl.dot -> MMAC/MFMA) & Software Pipelining Sweep
-Usage: python 08_triton_gemm_mmac.py
+E09: one GEMM configuration per process, with separate timing and PMC runs.
 """
 
-import re
-import time
+import argparse
+import json
+from pathlib import Path
 import torch
 
 try:
@@ -33,7 +33,7 @@ def gemm_kernel(
     group_id = pid // num_pid_in_group
     first_pid_m = group_id * GROUP_M
     group_size_m = min(num_pid_m - first_pid_m, GROUP_M)
-    pid_m = first_pid_m + (pid % group_size_m)
+    pid_m = first_pid_m + ((pid % num_pid_in_group) % group_size_m)
     pid_n = (pid % num_pid_in_group) // group_size_m
 
     offs_am = (pid_m * BLOCK_M + tl.arange(0, BLOCK_M)) % M
@@ -59,81 +59,93 @@ def gemm_kernel(
     tl.store(c_ptrs, c, mask=c_mask)
 
 
-def bench(fn, warmup=10, iters=30):
-    for _ in range(warmup):
+def measure(fn, *, samples=5, iters=20):
+    for _ in range(10):
         fn()
-    torch.cuda.synchronize()
-    t0 = time.perf_counter()
-    for _ in range(iters):
-        fn()
-    torch.cuda.synchronize()
-    return (time.perf_counter() - t0) / iters * 1e3
-
-
-def inspect_isa(compiled):
-    asm = getattr(compiled, "asm", {})
-    isa_key = next((k for k in ("amdgcn", "gcn", "ptx") if k in asm), None)
-    if not isa_key:
-        return "N/A"
-    text = asm[isa_key]
-    matrix_ops = len(re.findall(r"\bv_(mfma|mmac|wmma)_", text))
-    wait_ops = len(re.findall(r"\bs_waitcnt\b", text))
-    vgpr_m = re.search(r"\.vgpr_count:\s*(\d+)", text)
-    sgpr_m = re.search(r"\.sgpr_count:\s*(\d+)", text)
-    vgpr = vgpr_m.group(1) if vgpr_m else "?"
-    sgpr = sgpr_m.group(1) if sgpr_m else "?"
-    return f"vgpr={vgpr}, sgpr={sgpr}, matrix_ops={matrix_ops}, s_waitcnt={wait_ops}"
+    times = []
+    for _ in range(samples):
+        start = torch.cuda.Event(enable_timing=True)
+        stop = torch.cuda.Event(enable_timing=True)
+        start.record()
+        for _ in range(iters):
+            fn()
+        stop.record()
+        stop.synchronize()
+        times.append(start.elapsed_time(stop) / iters)
+    return times
 
 
 def main():
-    assert torch.cuda.is_available(), "No DCU/GPU device available"
-    M = N = K = 4096
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--shape", nargs=3, type=int, default=(4096, 4096, 4096),
+                        metavar=("M", "N", "K"))
+    parser.add_argument("--tile", nargs=3, type=int, default=(128, 128, 32),
+                        metavar=("BM", "BN", "BK"))
+    parser.add_argument("--warps", type=int, default=4)
+    parser.add_argument("--stages", type=int, default=1)
+    parser.add_argument("--group-m", type=int, default=8)
+    parser.add_argument("--backend", choices=("triton", "torch"), default="triton")
+    parser.add_argument("--profile-only", action="store_true",
+                        help="Run only the selected GEMM, without the reference or timed samples.")
+    parser.add_argument("--isa", type=Path, help="Write the selected Triton kernel ISA.")
+    args = parser.parse_args()
+
+    M, N, K = args.shape
+    bm, bn, bk = args.tile
+    if min(M, N, K, args.warps, args.stages, args.group_m) < 1:
+        parser.error("shape, warps, stages and group-m must be positive")
+    if any(size < 1 or size & (size - 1) for size in args.tile):
+        parser.error("tile dimensions must be positive powers of two")
+    if args.isa and args.backend != "triton":
+        parser.error("--isa requires --backend triton")
+
+    torch.manual_seed(42)
     A = torch.randn((M, K), device="cuda", dtype=torch.float16)
     B = torch.randn((K, N), device="cuda", dtype=torch.float16)
     C = torch.empty((M, N), device="cuda", dtype=torch.float16)
-    flops = 2.0 * M * N * K
+    grid = (triton.cdiv(M, bm) * triton.cdiv(N, bn),)
 
-    C_ref = torch.matmul(A, B)
-    t_rocblas = bench(lambda: torch.matmul(A, B))
-    print(f"=== Exp 8: Triton GEMM vs torch.matmul ({M}x{N}x{K}, FP16) ===")
-    print(f"  torch.matmul (rocBLAS/hipBLAS) : {t_rocblas:7.3f} ms | {(flops / 1e12) / (t_rocblas / 1e3):6.2f} TFLOPS\n")
+    def launch_triton():
+        return gemm_kernel[grid](
+            A, B, C, M, N, K,
+            A.stride(0), A.stride(1), B.stride(0), B.stride(1), C.stride(0), C.stride(1),
+            BLOCK_M=bm, BLOCK_N=bn, BLOCK_K=bk, GROUP_M=args.group_m,
+            num_warps=args.warps, num_stages=args.stages,
+        )
 
-    configs = [
-        (128, 128, 32, 4, 1),
-        (128, 128, 32, 4, 2),
-        (128, 128, 64, 8, 2),
-        (128, 256, 32, 8, 2),
-    ]
+    def launch_torch():
+        torch.mm(A, B, out=C)
 
-    for bm, bn, bk, nw, ns in configs:
-        grid = (triton.cdiv(M, bm) * triton.cdiv(N, bn),)
-        try:
-            compiled = gemm_kernel[grid](
-                A, B, C, M, N, K,
-                A.stride(0), A.stride(1),
-                B.stride(0), B.stride(1),
-                C.stride(0), C.stride(1),
-                BLOCK_M=bm, BLOCK_N=bn, BLOCK_K=bk, GROUP_M=8,
-                num_warps=nw, num_stages=ns,
-            )
-            torch.cuda.synchronize()
-            diff = (C - C_ref).abs().max().item()
-            ms = bench(lambda: gemm_kernel[grid](
-                A, B, C, M, N, K,
-                A.stride(0), A.stride(1),
-                B.stride(0), B.stride(1),
-                C.stride(0), C.stride(1),
-                BLOCK_M=bm, BLOCK_N=bn, BLOCK_K=bk, GROUP_M=8,
-                num_warps=nw, num_stages=ns,
-            ))
-            tflops = (flops / 1e12) / (ms / 1e3)
-            lds_bytes = getattr(getattr(compiled, "metadata", None), "shared", "?")
-            isa_info = inspect_isa(compiled)
-            print(f"  BM={bm:3d}, BN={bn:3d}, BK={bk:2d}, warps={nw}, stages={ns} | "
-                  f"{ms:7.3f} ms | {tflops:6.2f} TFLOPS | diff={diff:.3f} | "
-                  f"LDS={lds_bytes}B | {isa_info}")
-        except Exception as e:
-            print(f"  BM={bm:3d}, BN={bn:3d}, BK={bk:2d}, warps={nw}, stages={ns} | FAILED: {e}")
+    launch = launch_triton if args.backend == "triton" else launch_torch
+    compiled = launch()
+    torch.cuda.synchronize()
+    if args.isa:
+        isa = compiled.asm.get("amdgcn") or compiled.asm.get("gcn")
+        if not isa:
+            raise RuntimeError("The selected backend did not expose DCU ISA")
+        args.isa.write_text(isa, encoding="utf-8")
+
+    result = {
+        "backend": args.backend, "shape": args.shape, "seed": 42,
+        "device": torch.cuda.get_device_name(), "torch": torch.__version__,
+        "triton": triton.__version__, "profile_only": args.profile_only,
+    }
+    if args.backend == "triton":
+        result.update(tile=args.tile, warps=args.warps, stages=args.stages,
+                      group_m=args.group_m, lds_bytes=compiled.metadata.shared)
+    if args.profile_only:
+        for _ in range(5):
+            launch()
+        torch.cuda.synchronize()
+        result["gemm_launches"] = 6
+    else:
+        # Match the FP16 output contract; check against FP32 accumulation.
+        reference = (A.float() @ B.float()).half()
+        torch.testing.assert_close(C, reference, rtol=1e-2, atol=2e-2)
+        result["max_abs_error"] = (C - reference).abs().max().item()
+        result["validation"] = "pass"
+        result["ms_samples"] = measure(launch)
+    print(json.dumps(result))
 
 
 if __name__ == "__main__":

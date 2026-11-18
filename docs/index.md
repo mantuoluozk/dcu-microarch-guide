@@ -5,7 +5,13 @@
 
 ---
 
-## 全站四大部分导航
+## 研究入口
+
+- [读原理](01-overview/software-stack.md)　理解执行、存储和调度。
+- [跑实验](labs/index.md)　按问题查找实验与复现命令。
+- [查 BW100 实测基线](baselines/bw100-gfx936.md)　下载环境、逐轮计时、PMC 与 ISA。
+
+## 研究内容
 
 ### [专题实施方案](00-plan/research-plan.md)
 - 项目定位、双主线技术路线、四大研究方向与 2027 年核心交付目标。
@@ -23,23 +29,10 @@
 3. [2.3 ISA 反汇编分析与仿真（DCUSIM 待补充）](profiling/03-isa-and-sim.md) — `.s` 汇编 5 大检查点与 DCUSIM 预留章节。
 
 ### 第三部分：底层微基准与算子实战
-- [实验导览与环境准备](labs/lab-setup.md)
-- **HIP 底层微基准：**
-  - [实验 1：全局内存合并访存与 `float4` 向量化](labs/lab01-memory-coalescing.md)（`1364.93 GB/s`）
-  - [实验 2：LDS Bank Conflict 与 Padding / XOR Swizzle 消除](labs/lab02-lds-bank-conflict.md)（32-way 冲突慢 `19.62x`）
-  - [实验 3：SIMT 分支发散与 Predicated If-Conversion](labs/lab03-branch-divergence.md)
-  - [实验 4：Occupancy 悬崖与 TLP / ILP 延迟隐藏](labs/lab04-occupancy-ilp.md)
-  - [实验 5：Wavefront Shuffle 规约 vs LDS 规约](labs/lab05-wave-shuffle-reduction.md)
-  - [实验 6：用“寻宝游戏”测出 L1 / L2 / HBM 真实延迟阶梯](labs/lab08-memory-latency-ladder.md)（`57 → 216 → 407 cycles`）
-  - [实验 7：用 HCU Builtin 直呼 MMAC 矩阵引擎](labs/lab09-mmac-builtin-and-valu.md)（`333.49 TFLOPS` vs VALU `20.21 TFLOPS`）
-- **Triton / `lightop` 高级算子：**
-  - [实验 8：Memory-bound 算子融合（PyTorch vs `lightop` vs Triton RMSNorm）](labs/lab06-triton-lightop-rmsnorm.md)（提速 `19.21x`）
-  - [实验 9：Triton GEMM vs `rocBLAS` 与 `hipprof` PMC 根因破案](labs/lab07-triton-gemm-vs-rocblas.md)
-  - [实验 10：Triton GEMM 调优实战（待补充）](labs/lab10-triton-gemm-tuning.md)
 
-### 第四部分：大模型推理优化实战
-1. [4.1 vLLM / SGLang 推理热点分析（待补充）](llm-opt/01-framework-profiling.md)
-2. [4.2 GEMM 与 MoE 算子优化（待补充）](llm-opt/02-gemm-and-moe.md)
-3. [4.3 Attention 与 KV Cache 优化（待补充）](llm-opt/03-attention-kvcache.md)
-4. [4.4 案例参考：LSTM Persistent MMAC Kernel 拆解](cases/lstm-persistent-kernel.md)
-5. [4.5 通用算子优化六步法与研发反馈清单](cases/llm-operators-playbook.md)
+从 [实验索引](labs/index.md) 查看 E01–E10 的研究问题、复测状态和入口。首次运行先看 [环境准备](labs/lab-setup.md)。
+
+### 第四部分：大模型推理优化
+
+- [算子优化案例与检查清单](cases/llm-operators-playbook.md) — GEMM、融合 RMSNorm 与 LSTM Persistent 的分析入口。
+- [研究路线图](roadmap.md) — 记录 BW100 复测进度以及下一步推理 shape 和跨代对照。

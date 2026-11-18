@@ -1,25 +1,29 @@
 #include "common.h"
+#include <cstring>
 #include <vector>
 #include <numeric>
 #include <algorithm>
 #include <random>
 
-// Pointer-chasing kernel in Global Memory (L1 -> L2 -> HBM)
-// Runs on 1 thread to eliminate TLP hiding and expose pure round-trip latency.
+// Launch one thread for a dependent load chain. LaneIndexed keeps the address
+// lane-dependent in the compiler, so its ISA can be compared with the uniform path.
+template <bool LaneIndexed>
 __global__ void global_chase_kernel(const int* __restrict__ next_idx,
                                     int* __restrict__ out,
                                     unsigned long long* __restrict__ out_cycles,
                                     int steps) {
-    int idx = 0;
+    int idx = LaneIndexed ? threadIdx.x : 0;
     // Warmup cache for working sets that fit in L1/L2
     for (int i = 0; i < steps; ++i) {
         idx = next_idx[idx];
     }
 
+    asm volatile("s_waitcnt 0" ::: "memory");
     unsigned long long t0 = clock64();
     for (int i = 0; i < steps; ++i) {
         idx = next_idx[idx];
     }
+    asm volatile("s_waitcnt 0" ::: "memory");
     unsigned long long t1 = clock64();
 
     out[0] = idx;
@@ -42,77 +46,120 @@ __global__ void lds_chase_kernel(int* __restrict__ out,
     for (int i = 0; i < steps; ++i) {
         idx = s_next[idx];
     }
+    asm volatile("s_waitcnt 0" ::: "memory");
     unsigned long long t0 = clock64();
     for (int i = 0; i < steps; ++i) {
         idx = s_next[idx];
     }
+    asm volatile("s_waitcnt 0" ::: "memory");
     unsigned long long t1 = clock64();
 
     out[0] = idx;
     out_cycles[0] = t1 - t0;
 }
 
-int main() {
-    hipDeviceProp_t prop{};
-    HIP_CHECK(hipGetDeviceProperties(&prop, 0));
-    double core_ghz = prop.clockRate / 1e6; // clockRate is in kHz
+int main(int argc, char** argv) {
+    // Optional size (KiB; 0 runs the full sweep), seed, and probe spacing (bytes).
+    const size_t sizes_kib[] = {
+        4, 8, 12, 16, 18, 20, 24, 28, 32, 48, 64, 128, 256, 384, 512, 768,
+        1024, 1536, 2048, 3072, 4096, 6144, 8192, 10240, 12288, 16384, 32768, 65536
+    };
+    unsigned long options[] = {0, 42, 64};
+    if (argc > 5) {
+        std::fprintf(stderr, "Usage: %s [size_KiB_or_0 [seed [spacing_bytes [scalar|lane]]]]\n", argv[0]);
+        return EXIT_FAILURE;
+    }
+    for (int i = 1; i < argc && i <= 3; ++i) {
+        char* end = nullptr;
+        options[i - 1] = std::strtoul(argv[i], &end, 10);
+        if (end == argv[i] || *end || argv[i][0] == '-') {
+            std::fprintf(stderr, "Invalid numeric argument: %s\n", argv[i]);
+            return EXIT_FAILURE;
+        }
+    }
+    const auto [requested_kib, seed, spacing] = options;
+    if (requested_kib > 65536 || seed > 0xffffffffUL ||
+        (spacing != 32 && spacing != 64 && spacing != 128)) {
+        std::fprintf(stderr, "Size must be 0-65536 KiB, seed uint32, spacing 32/64/128 bytes.\n");
+        return EXIT_FAILURE;
+    }
+
+    const bool lane_indexed = argc == 5 && std::strcmp(argv[4], "lane") == 0;
+    if (argc == 5 && !lane_indexed && std::strcmp(argv[4], "scalar") != 0) {
+        std::fprintf(stderr, "Address mode must be scalar or lane.\n");
+        return EXIT_FAILURE;
+    }
 
     int* d_out = nullptr;
     unsigned long long* d_cycles = nullptr;
     HIP_CHECK(hipMalloc(&d_out, sizeof(int)));
     HIP_CHECK(hipMalloc(&d_cycles, sizeof(unsigned long long)));
 
-    std::printf("=== Exp 8: Memory Latency Ladder (Pointer-Chasing, %s @ %.2f GHz) ===\n",
-                prop.name, core_ghz);
-
-    // 1. LDS Latency
-    constexpr int LDS_ELEMS = 4096;
-    constexpr int STEPS = 4096;
-    hipLaunchKernelGGL(lds_chase_kernel, dim3(1), dim3(1), 0, 0, d_out, d_cycles, LDS_ELEMS, STEPS);
-    HIP_CHECK(hipDeviceSynchronize());
-    unsigned long long h_cyc = 0;
-    HIP_CHECK(hipMemcpy(&h_cyc, d_cycles, sizeof(h_cyc), hipMemcpyDeviceToHost));
-    double lds_cyc = static_cast<double>(h_cyc) / STEPS;
-    std::printf("  %-18s : %7.1f cycles (%6.2f ns)\n", "LDS (16 KB)", lds_cyc, lds_cyc / core_ghz);
-
-    // 2. Global Memory Working-Set Sweep (L1 -> L2 -> HBM)
-    const size_t sizes_kb[] = {4, 16, 32, 64, 256, 1024, 4096, 8192, 16384, 65536};
-    std::mt19937 rng(42);
-
-    for (size_t kb : sizes_kb) {
-        // Stride of 64 bytes (16 ints) ensures each hop hits a distinct cache line
-        constexpr int LINE_INTS = 16;
-        size_t total_ints = (kb * 1024) / sizeof(int);
-        size_t num_lines = total_ints / LINE_INTS;
-
-        std::vector<int> perm(num_lines);
-        std::iota(perm.begin(), perm.end(), 0);
-        std::shuffle(perm.begin(), perm.end(), rng);
-
-        std::vector<int> h_buf(total_ints, 0);
-        for (size_t i = 0; i < num_lines; ++i) {
-            int cur = perm[i] * LINE_INTS;
-            int nxt = perm[(i + 1) % num_lines] * LINE_INTS;
-            h_buf[cur] = nxt;
+    std::puts("path,size_KiB,seed,spacing_bytes,hops,sample,clock64_ticks_per_hop");
+    auto measure = [&](const char* path, size_t kib, unsigned long spacing_bytes, int steps, auto launch) {
+        for (int sample = 1; sample <= 5; ++sample) {
+            launch();
+            HIP_CHECK(hipGetLastError());
+            HIP_CHECK(hipDeviceSynchronize());
+            int endpoint = -1;
+            unsigned long long ticks = 0;
+            HIP_CHECK(hipMemcpy(&endpoint, d_out, sizeof(endpoint), hipMemcpyDeviceToHost));
+            HIP_CHECK(hipMemcpy(&ticks, d_cycles, sizeof(ticks), hipMemcpyDeviceToHost));
+            if (endpoint != 0 || ticks == 0) {
+                std::fprintf(stderr, "%s: ring did not close or clock64 did not advance\n", path);
+                std::exit(EXIT_FAILURE);
+            }
+            std::printf("%s,%zu,%lu,%lu,%d,%d,%.3f\n", path, kib, seed, spacing_bytes,
+                        steps, sample, static_cast<double>(ticks) / steps);
         }
+    };
 
-        int* d_buf = nullptr;
-        HIP_CHECK(hipMalloc(&d_buf, total_ints * sizeof(int)));
-        HIP_CHECK(hipMemcpy(d_buf, h_buf.data(), total_ints * sizeof(int), hipMemcpyHostToDevice));
-
-        hipLaunchKernelGGL(global_chase_kernel, dim3(1), dim3(1), 0, 0,
-                           d_buf, d_out, d_cycles, STEPS);
-        HIP_CHECK(hipDeviceSynchronize());
-        HIP_CHECK(hipMemcpy(&h_cyc, d_cycles, sizeof(h_cyc), hipMemcpyDeviceToHost));
-
-        double cyc = static_cast<double>(h_cyc) / STEPS;
-        std::printf("  Working Set %5zu KB : %7.1f cycles (%6.2f ns)\n",
-                    kb, cyc, cyc / core_ghz);
-
-        HIP_CHECK(hipFree(d_buf));
+    if (!requested_kib) {
+        constexpr int lds_elements = 4096;
+        measure("lds", 16, 0, lds_elements, [&]() {
+            hipLaunchKernelGGL(lds_chase_kernel, dim3(1), dim3(1), 0, 0,
+                               d_out, d_cycles, lds_elements, lds_elements);
+        });
     }
 
+    auto run_global = [&](size_t kib) {
+        const size_t total_ints = kib * 1024 / sizeof(int);
+        const int spacing_ints = static_cast<int>(spacing / sizeof(int));
+        const int nodes = static_cast<int>(total_ints / spacing_ints);
+        // Both phases traverse whole rings, with at least 4096 dependent loads each.
+        const int steps = nodes * ((4096 + nodes - 1) / nodes);
+        std::vector<int> permutation(nodes);
+        std::iota(permutation.begin(), permutation.end(), 0);
+        std::mt19937 rng(static_cast<std::mt19937::result_type>(seed));
+        std::shuffle(permutation.begin(), permutation.end(), rng);
+
+        std::vector<int> buffer(total_ints, 0);
+        for (int i = 0; i < nodes; ++i) {
+            buffer[permutation[i] * spacing_ints] = permutation[(i + 1) % nodes] * spacing_ints;
+        }
+
+        int* device_buffer = nullptr;
+        HIP_CHECK(hipMalloc(&device_buffer, total_ints * sizeof(int)));
+        HIP_CHECK(hipMemcpy(device_buffer, buffer.data(), total_ints * sizeof(int), hipMemcpyHostToDevice));
+        measure(lane_indexed ? "global_lane" : "global_scalar", kib, spacing, steps, [&]() {
+            if (lane_indexed) {
+                hipLaunchKernelGGL((global_chase_kernel<true>), dim3(1), dim3(1), 0, 0,
+                                   device_buffer, d_out, d_cycles, steps);
+            } else {
+                hipLaunchKernelGGL((global_chase_kernel<false>), dim3(1), dim3(1), 0, 0,
+                                   device_buffer, d_out, d_cycles, steps);
+            }
+        });
+        HIP_CHECK(hipFree(device_buffer));
+    };
+
+    if (requested_kib) {
+        run_global(requested_kib);
+    } else {
+        for (size_t kib : sizes_kib) {
+            run_global(kib);
+        }
+    }
     HIP_CHECK(hipFree(d_out));
     HIP_CHECK(hipFree(d_cycles));
-    return 0;
 }

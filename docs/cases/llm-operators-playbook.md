@@ -1,5 +1,11 @@
 # 案例 2：大模型关键算子迁移与 Kernel 优化分析清单
 
+## 算子案例
+
+- [Triton GEMM 分配置计时与 PMC](../labs/lab07-triton-gemm-vs-rocblas.md)
+- [PyTorch、lightop 与 Triton 融合 RMSNorm](../labs/lab06-triton-lightop-rmsnorm.md)
+- [LSTM Persistent MMAC Kernel 拆解](lstm-persistent-kernel.md)
+
 ## 八、把这些知识迁移到大模型关键算子
 
 掌握以上内容后，可以用同样的方法研究 GEMM、Attention、MoE 等算子。

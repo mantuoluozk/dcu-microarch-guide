@@ -1,20 +1,44 @@
-# 实验 4：Occupancy 悬崖与 TLP / ILP 延迟隐藏
+# E04 · Occupancy 悬崖与 TLP / ILP 延迟隐藏
+
+**研究问题**　LDS 压低驻留 wave 数之后，提高 ILP 能追回多少性能？
+
+历史 BW100 记录中，动态 LDS 增加使驻留上限从 32 wave/CU 降到 4。High-ILP 只在所测的 8 wave/CU 配置略占优。
+
+[适用环境](../baselines/bw100-gfx936.md) · [复现命令](#复现命令)
+
+## BW100 结果
+
+| 动态 LDS 占用 | 每 CU 驻留 Block 数 | 每 CU 驻留 Wave 数（Occupancy） | `Low-ILP` (ms) | `High-ILP` (ms) |
+|---|---:|---:|---:|---:|
+| `0 KB` | `8` | `32` (`80%`) | **`0.0386`** | `0.0484` |
+| `16 KB` | `4` | `16` (`40%`) | `0.0491` | `0.0501` |
+| `32 KB` | `2` | `8` (`20%`) | `0.0806` | **`0.0779`** |
+| `48 KB` | `1` | `4` (`10%`) | `0.1045` | `0.1218` |
+
+## 复现命令
+
+```bash
+cd experiments
+make 05_occupancy_and_ilp && ./05_occupancy_and_ilp
+```
 
 > **源码：** [05_occupancy_and_ilp.hip](https://github.com/mantuoluozk/dcu-microarch-guide/blob/main/experiments/05_occupancy_and_ilp.hip)  
 > **关联理论：** [第 4 章：Occupancy、TLP 与 ILP](../04-scheduling/occupancy-and-roofline.md)
 
----
-
-## 1. 实验原理：没有足够 Wavefront 时，CU 会怎样？
+## 实验原理：没有足够 Wavefront 时，CU 会怎样？
 
 一次 HBM 访问延迟高达数百个时钟周期。DCU 隐藏延迟靠两条腿走路：
 
 1. **TLP（线程级并行 / Occupancy）：** Wave 0 等待 HBM 时，CU 调度器立刻切换执行 Wave 1 ~ Wave N。如果因为 VGPR 或 LDS 占用过大，导致每 CU 只能驻留极少数 Wavefront，调度器就会“无 Wave 可切”，只能干等。
 2. **ILP（指令级并行）：** 单个 Wavefront 内部连续发射多条互不依赖的独立加载指令（在 `s_waitcnt` 前一起在途飞行），也能在一定程度上摊薄延迟。
 
----
+## 现象拆解与工程结论
 
-## 2. 完整源码与逐段解读
+1. **清晰的 Occupancy 阶梯：** BW100 每 CU 64 KB LDS 下，随着单 Block LDS 从 `0 → 16 → 32 → 48 KB`，驻留 Wave 数按 `32 → 16 → 8 → 4` 阶梯腰斩。
+2. **Low-ILP 的延迟暴露：** 当 Wave 数从 `32` 跌到 `4` 时，`Low-ILP` 耗时从 `0.0386 ms` 恶化到 `0.1045 ms`（**2.71x 退化**）。
+3. **ILP 的代价：** 在 `8 Waves/CU`（32 KB LDS）甜点处，`High-ILP` 反超 `Low-ILP`（`0.0779` vs `0.0806 ms`）；但在 0 KB 与 48 KB 时略慢，是因为 `High-ILP` 循环中 4 路索引使用了额外的 `% n` 整数取模 VALU 指令。这提醒我们：**提升 ILP 时不能引入过重的索引计算开销**。
+
+::: details 查看源码与实现细节
 
 ```cpp title="experiments/05_occupancy_and_ilp.hip"
 #include "common.h"
@@ -72,20 +96,13 @@ __global__ void high_ilp_kernel(const float* __restrict__ a,
 }
 ```
 
-### 关键代码设计细节
+#### 关键代码设计细节
 - **如何精准控制每 CU 驻留 Wave 数？** 通过 `hipLaunchKernelGGL(..., lds_bytes, ...)` 传入 `0 / 16 / 32 / 48 KB` 动态 LDS，并用 `hipOccupancyMaxActiveBlocksPerMultiprocessor` 查询驱动计算出的真实驻留 Block 上限。
 - **`dummy_lds[0] == 123` 的作用：** 避免编译器认为动态共享内存未被使用而优化掉资源声明（实际运行时不会触发写入）。
 
----
+:::
 
-## 3. 复现命令与 BW100 实测数据
-
-```bash
-cd /exp/dcu_microarch_exp
-make 05_occupancy_and_ilp && ./05_occupancy_and_ilp
-```
-
-### 原始终端输出
+::: details 查看原始终端输出
 
 ```text
 $ ./05_occupancy_and_ilp
@@ -96,19 +113,4 @@ $ ./05_occupancy_and_ilp
   LDS=48 KB | Low-ILP:  1 Blks/CU ( 4 Waves) ->  0.1045 ms | High-ILP:  1 Blks/CU ( 4 Waves) ->  0.1218 ms
 ```
 
-### 结构化汇总表
-
-| 动态 LDS 占用 | 每 CU 驻留 Block 数 | 每 CU 驻留 Wave 数（Occupancy） | `Low-ILP` (ms) | `High-ILP` (ms) |
-|---|---:|---:|---:|---:|
-| `0 KB` | `8` | `32` (`80%`) | **`0.0386`** | `0.0484` |
-| `16 KB` | `4` | `16` (`40%`) | `0.0491` | `0.0501` |
-| `32 KB` | `2` | `8` (`20%`) | `0.0806` | **`0.0779`** |
-| `48 KB` | `1` | `4` (`10%`) | `0.1045` | `0.1218` |
-
----
-
-## 4. 现象拆解与工程结论
-
-1. **清晰的 Occupancy 阶梯：** BW100 每 CU 64 KB LDS 下，随着单 Block LDS 从 `0 → 16 → 32 → 48 KB`，驻留 Wave 数按 `32 → 16 → 8 → 4` 阶梯腰斩。
-2. **Low-ILP 的延迟暴露：** 当 Wave 数从 `32` 跌到 `4` 时，`Low-ILP` 耗时从 `0.0386 ms` 恶化到 `0.1045 ms`（**2.71x 退化**）。
-3. **ILP 的代价：** 在 `8 Waves/CU`（32 KB LDS）甜点处，`High-ILP` 反超 `Low-ILP`（`0.0779` vs `0.0806 ms`）；但在 0 KB 与 48 KB 时略慢，是因为 `High-ILP` 循环中 4 路索引使用了额外的 `% n` 整数取模 VALU 指令。这提醒我们：**提升 ILP 时不能引入过重的索引计算开销**。
+:::

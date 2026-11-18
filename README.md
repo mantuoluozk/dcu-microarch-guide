@@ -5,40 +5,15 @@
 - **在线文档站：** https://mantuoluozk.github.io/dcu-microarch-guide/
 - **仓库地址：** https://github.com/mantuoluozk/dcu-microarch-guide
 
-## 目录结构
+## BW100 基线复跑
 
-```text
-├── docs/                       # MkDocs 文档站源码
-│   ├── architecture/           # 微架构原理与执行机制
-│   ├── tutorials/              # BW100 实战教程与实验手册
-│   └── reports/                # BW100 实测数据报告
-├── experiments/                # 可复现实验代码 (HIP / Triton / lightop / hipprof)
-│   ├── 01_device_info_and_isa.hip
-│   ├── 02_coalescing_and_vec.hip
-│   ├── 03_lds_bank_conflict.hip
-│   ├── 04_branch_divergence.hip
-│   ├── 05_occupancy_and_ilp.hip
-│   ├── 06_shuffle_vs_lds.hip
-│   ├── parse_hipprof_pmc.py
-│   └── advanced/
-│       ├── 07_triton_fused_rmsnorm.py
-│       ├── 08_triton_gemm_mmac.py
-│       ├── 09_hygon_ops_and_stack.py
-│       └── 10_lightop_vs_triton_pytorch.py
-├── mkdocs.yml                  # MkDocs Material 配置
-└── .github/workflows/deploy.yml
-```
-
-## 快速运行实验（在 DCU 容器内）
+在有 BW100、DTK、PyTorch 和 Triton 的 Linux 环境中，从仓库根目录执行：
 
 ```bash
-cd experiments
-make run      # 编译并运行实验 1~6
-make isa      # 导出设备端 AMDGCN ISA 汇编
-
-cd advanced
-python3 09_hygon_ops_and_stack.py
-python3 07_triton_fused_rmsnorm.py
-python3 08_triton_gemm_mmac.py
-python3 10_lightop_vs_triton_pytorch.py
+bash experiments/run_bw100_baseline.sh gfx936 ./bw100-repeat
 ```
+
+- [实验索引](docs/labs/index.md) 包括实验 ID、研究问题和复测状态。
+- [BW100 基线档案](docs/baselines/bw100-gfx936.md) 包括实测口径、原始数据和跨代比较规则。
+
+`docs/` 为 VitePress 站点，`experiments/` 为 HIP/Triton 代码与采集工具。运行 `npm install` 和 `npm run docs:build` 可构建静态站点。

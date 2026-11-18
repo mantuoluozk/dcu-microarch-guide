@@ -206,23 +206,12 @@ N_{\text{BlockSlots}}
 - LDS 和寄存器是否提供充分的数据复用。
 - 资源使用是否影响后续任务的驻留。
 
-### 6.5 Roofline 模型：定量区分算力瓶颈与访存瓶颈
+### 6.5 Roofline 模型与 BW100 对照
 
-在优化任何一个 Kernel 之前，先做一次 Roofline 定量估算，可以避免方向性错误（比如对一个 Memory-bound 算子盲目调高计算指令并行度）：
+计算强度 $I = F / B_\mathrm{HBM}$，其中 $F$ 是定义明确的运算量，$B_\mathrm{HBM}$ 是硬件边界的实际读写字节。理想上限为 $\min(P_\mathrm{compute}, I \cdot BW_\mathrm{HBM})$，拐点为 $P_\mathrm{compute} / BW_\mathrm{HBM}$。靠近哪条线用于提出瓶颈假设，再用资源与消融数据验证。
 
-- **计算强度（Arithmetic Intensity, AI）：**
+[BW100 基线](../baselines/bw100-gfx936.md) 可先提供两条经验参照：[E07](../labs/lab09-mmac-builtin-and-valu.md) 的 FP16 输入、FP32 累加 MMAC 微基准为 333.49 TFLOPS，[E01](../labs/lab01-memory-coalescing.md) 的向量拷贝有效带宽为 1.367 TB/s。按这两个工作负载约为 **244 FLOPs/B**；拷贝的逻辑字节数与实际 HBM 流量使用不同口径，244 只是经验位置。对 [E09](../labs/lab07-triton-gemm-vs-rocblas.md) 的 `4096³` GEMM，计入 A、B 各读一次和 C 写一次，约为 1365 FLOPs/逻辑字节。若要在同一张严格的 HBM Roofline 上定位，先测出每个 GEMM 配置的实际 HBM 读写字节。
 
+### 6.6 VGPR 更少，为什么没有更快？
 
-\text{AI} = \frac{\text{总浮点运算次数 (FLOPs)}}{\text{从 HBM 读写的总字节数 (Bytes)}}
-
-
-- **硬件拐点（Ridge Point）：**
-
-
-\text{Ridge Point} = \frac{\text{目标精度峰值算力 (TFLOPS)}}{\text{HBM 实测峰值带宽 (TB/s)}}
-
-
-- 当算子的 $\text{AI} < \text{Ridge Point}$ 时，算子处于 **Memory-bound（访存受限）** 区间，理论上限由 $\text{AI} \times \text{HBM 带宽}$ 决定（例如向量加法、RMSNorm、Batch=1 的 Decode GEMV / LSTM 单步）；此时优化的核心是合并访存、向量化加载、算子融合（减少写回再读出）以及提高数据复用。
-- 当算子的 $\text{AI} > \text{Ridge Point}$ 时，算子处于 **Compute-bound（算力受限）** 区间，理论上限由峰值算力决定（例如大矩阵 GEMM、Prefill Attention）；此时优化的核心是提高 MMAC 利用率、指令流水（`s_waitcnt` 重叠）、消除 LDS Bank Conflict 和避免寄存器 Spill。
-
----
+[E09](../labs/lab07-triton-gemm-vs-rocblas.md) 中，只把 `BK` 从 32 改为 16，VGPR 从 144 降到 112，LDS 仍为 8704 B，scratch 仍为 0，耗时却从 1.4120 ms 增至 1.4973 ms。诊断时先用最终 code object 的 VGPR、SGPR、LDS 及当前设备的分配粒度计算驻留上限，再看 K 循环次数和 ISA 是否变化，最后用计数器与计时交叉验证。[E04 的动态 LDS 对照](../labs/lab04-occupancy-ilp.md) 可用来观察单个资源约束如何改变驻留上限。

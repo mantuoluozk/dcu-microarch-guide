@@ -4,6 +4,8 @@
 
 ---
 
+最新复测的精简配置、下载和整套命令见 [BW100 基线档案](../baselines/bw100-gfx936.md)。各个实验入口见 [实验索引](index.md)。
+
 ## 1. 软件栈链路探测（`09_hygon_ops_and_stack.py`）
 
 参考 `hello-rocm` 中“解密 AI 加速器”的方法，我们先用脚本追踪 PyTorch 进程实际加载了哪些底层 `.so` 动态库（类似 `ldd`），并检查容器内已安装的 DSL / 专项算子库，再用 `torch.profiler` 观察一次 `matmul` 到底派发了哪个底层 Kernel。
@@ -243,7 +245,7 @@ Sample FMA check: c[0]=6.50 (expected 6.50), avg time=0.0229 ms
 | 每 CU 最大驻留 Wave 数 | `40`（`2560` 线程） | 理论 Occupancy 的上限分母 |
 | LDS 容量 | `64 KB` | 单 Block 用 >32 KB 时每 CU 只能驻留 1 个 Block |
 | 每 Block 寄存器池 | `196608`（32-bit） | 决定单 Block 可用的最大 VGPR/SGPR 总额 |
-| L2 Cache 容量 | `8192 KB`（`8 MB`） | 超过 8 MB 的工作集将穿透至 HBM |
+| L2 Cache 容量 | `8192 KB`（`8 MB`） | 容量为运行时报告；实际转折受加载路径和访问模式影响，见 [E06](lab08-memory-latency-ladder.md) |
 | HBM 显存与位宽 | `63.98 GB`, `4096-bit @ 1800 MHz` | 理论峰值约 `1843.2 GB/s` |
 
 ---

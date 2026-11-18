@@ -1,11 +1,14 @@
 import { defineConfig } from 'vitepress'
 import mathjax3 from 'markdown-it-mathjax3'
 
+const base = '/dcu-microarch-guide/'
+
 export default defineConfig({
-  base: '/dcu-microarch-guide/',
+  base,
   lang: 'zh-CN',
   title: 'DCU 微架构指南',
   description: '从 DCU 微架构原理、Profiling 工具链到 HIP / Triton / lightop 实战与大模型推理优化',
+  head: [['link', { rel: 'icon', type: 'image/png', href: `${base}dcu-icon.png` }]],
 
   markdown: {
     config: (md) => {
@@ -14,6 +17,11 @@ export default defineConfig({
   },
 
   themeConfig: {
+    skipToContentLabel: '跳到正文',
+    sidebarMenuLabel: '章节目录',
+    returnToTopLabel: '返回顶部',
+    darkModeSwitchLabel: '外观',
+
     outline: {
       level: [2, 3],
       label: '本页目录'
@@ -43,8 +51,8 @@ export default defineConfig({
       { text: '专题方案', link: '/00-plan/research-plan' },
       { text: '微架构原理', link: '/01-overview/software-stack' },
       { text: 'Profiling 工具', link: '/profiling/01-toolchain-overview' },
-      { text: '实战实验', link: '/labs/lab-setup' },
-      { text: '大模型优化', link: '/llm-opt/01-framework-profiling' }
+      { text: '实战实验', link: '/labs/' },
+      { text: '大模型优化', link: '/cases/llm-operators-playbook' }
     ],
 
     sidebar: [
@@ -53,7 +61,8 @@ export default defineConfig({
         collapsed: false,
         items: [
           { text: '首页导览', link: '/' },
-          { text: '专题实施方案', link: '/00-plan/research-plan' }
+          { text: '专题实施方案', link: '/00-plan/research-plan' },
+          { text: 'BW100 实测基线', link: '/baselines/bw100-gfx936' }
         ]
       },
       {
@@ -80,27 +89,28 @@ export default defineConfig({
         text: '第三部分：底层与算子实战',
         collapsed: false,
         items: [
-          { text: '实验导览与环境准备', link: '/labs/lab-setup' },
+          { text: '实验索引', link: '/labs/' },
+          { text: '环境准备', link: '/labs/lab-setup' },
           {
             text: 'HIP 底层微基准',
             collapsed: false,
             items: [
-              { text: '实验 1：合并访存与 float4', link: '/labs/lab01-memory-coalescing' },
-              { text: '实验 2：LDS Bank Conflict', link: '/labs/lab02-lds-bank-conflict' },
-              { text: '实验 3：SIMT 分支发散', link: '/labs/lab03-branch-divergence' },
-              { text: '实验 4：Occupancy 与 ILP', link: '/labs/lab04-occupancy-ilp' },
-              { text: '实验 5：Wave Shuffle 规约', link: '/labs/lab05-wave-shuffle-reduction' },
-              { text: '实验 6：L1 / L2 / HBM 延迟', link: '/labs/lab08-memory-latency-ladder' },
-              { text: '实验 7：MMAC Builtin 峰值', link: '/labs/lab09-mmac-builtin-and-valu' }
+              { text: 'E01 · 合并访存与 float4', link: '/labs/lab01-memory-coalescing' },
+              { text: 'E02 · LDS Bank Conflict', link: '/labs/lab02-lds-bank-conflict' },
+              { text: 'E03 · SIMT 分支发散', link: '/labs/lab03-branch-divergence' },
+              { text: 'E04 · Occupancy 与 ILP', link: '/labs/lab04-occupancy-ilp' },
+              { text: 'E05 · Wave Shuffle 规约', link: '/labs/lab05-wave-shuffle-reduction' },
+              { text: 'E06 · 存储延迟阶梯', link: '/labs/lab08-memory-latency-ladder' },
+              { text: 'E07 · MMAC Builtin 峰值', link: '/labs/lab09-mmac-builtin-and-valu' }
             ]
           },
           {
             text: 'Triton / lightop 算子',
             collapsed: false,
             items: [
-              { text: '实验 8：融合 RMSNorm', link: '/labs/lab06-triton-lightop-rmsnorm' },
-              { text: '实验 9：GEMM vs rocBLAS', link: '/labs/lab07-triton-gemm-vs-rocblas' },
-              { text: '实验 10：GEMM 调优（待补充）', link: '/labs/lab10-triton-gemm-tuning' }
+              { text: 'E08 · 融合 RMSNorm', link: '/labs/lab06-triton-lightop-rmsnorm' },
+              { text: 'E09 · GEMM 计时与 PMC', link: '/labs/lab07-triton-gemm-vs-rocblas' },
+              { text: 'E10 · GEMM 调优（待补充）', link: '/labs/lab10-triton-gemm-tuning' }
             ]
           }
         ]

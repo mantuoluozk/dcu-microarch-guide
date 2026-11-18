@@ -1,11 +1,33 @@
-# 实验 2：LDS Bank Conflict 与 Padding / XOR Swizzle 消除
+# E02 · LDS Bank Conflict 与 Padding / XOR Swizzle 消除
+
+**研究问题**　相同 LDS 指令数下，访问布局会怎样改变冲突和耗时？
+
+历史 BW100 记录中，列访问比行访问慢约 19.6 倍。Padding 和 XOR Swizzle 在该模式下恢复了大部分性能。
+
+[适用环境](../baselines/bw100-gfx936.md) · [复现命令](#复现命令)
+
+## BW100 结果
+
+| LDS 访问模式 | LDS 占用 | `SQ_INSTS_LDS` | **`SQ_LDS_BANK_CONFLICT`** | **`SQ_WAIT_INST_LDS`** | 平均耗时 (ms) | 相对无冲突 |
+|---|---:|---:|---:|---:|---:|---:|
+| `0. Row-wise` | `4096 B` | `16,781,312` | **`0`** | `160,742,378` | `0.6578` | `1.00x` |
+| `1. Col-wise (32-way)` | `4096 B` | `16,781,312` | **`1,040,187,392`** | **`2,944,249,187`** | **`12.9097`** | **慢 `19.62x`** |
+| `2. Padding [32][33]` | `4224 B` | `16,781,312` | **`0`** | `99,406,587` | `0.6769` | 恢复 **`19.07x`** |
+| `3. XOR Swizzle` | **`4096 B`** | `16,781,312` | **`0`** | `94,050,631` | **`0.6751`** | 恢复 **`19.12x`** |
+
+## 复现命令
+
+```bash
+cd experiments
+make 03_lds_bank_conflict && ./03_lds_bank_conflict
+hipprof --pmc --pmc-type 3 -o prof_out/exp03 ./03_lds_bank_conflict
+python3 parse_hipprof_pmc.py prof_out/exp03.csv
+```
 
 > **源码：** [03_lds_bank_conflict.hip](https://github.com/mantuoluozk/dcu-microarch-guide/blob/main/experiments/03_lds_bank_conflict.hip)  
 > **关联理论：** [第 3 章：LDS 与 Bank Conflict](../03-memory/memory-hierarchy.md)
 
----
-
-## 1. 实验原理：32-Bank 映射公式与冲突产生机制
+## 实验原理：32-Bank 映射公式与冲突产生机制
 
 DCU 片上的 LDS（64 KB/Block）通常划分为 **32 个 Bank，每个 Bank 宽度为 4 字节（32-bit）**：
 
@@ -20,9 +42,12 @@ DCU 片上的 LDS（64 KB/Block）通常划分为 **32 个 Bank，每个 Bank �
 - **Padding 消除（`[32][33]`）：** 把行宽改为 33，列步长变为 33，$\gcd(33, 32) = 1$，32 个线程错开落入全部 32 个 Bank（代价是多占 ~3% LDS）。
 - **XOR Swizzle 消除（`tile[tx][r ^ tx]`）：** 对同一行内任意固定 `r`，当 `tx` 遍历 `0..31` 时，`r ^ tx` 同样是 `0..31` 的双射排列！**不浪费 1 字节 LDS 容量，完美清零冲突**。
 
----
+## 现象拆解与工程结论
 
-## 2. 完整源码与逐段解读
+1. **10.4 亿次硬件冲突铁证：** Mode 1 执行了完全相同的 `1678 万` 次 LDS 指令，但 `SQ_LDS_BANK_CONFLICT` 暴涨至 **10.4 亿次**，`SQ_WAIT_INST_LDS` 等待周期翻了 **18.3 倍**（29.4 亿周期）。
+2. **Swizzle 是最优解：** Padding 多占用了 `128 B` LDS，在 LDS 紧张的算子中可能压低 Occupancy；而 **XOR Swizzle 在零额外 LDS 开销（`4096 B`）下完美清零冲突**，应作为矩阵转置、GEMM 与 FlashAttention 共享内存布局的首选方案。
+
+::: details 查看源码与实现细节
 
 ```cpp title="experiments/03_lds_bank_conflict.hip"
 #include "common.h"
@@ -75,23 +100,14 @@ __global__ void lds_bank_conflict_kernel(float* __restrict__ out) {
 }
 ```
 
-### 关键代码设计细节
+#### 关键代码设计细节
 - **为什么在 Kernel 内循环 `2048` 次 LDS 读-改-写？** 单次 LDS 访问只有几十个周期，如果只访问一次，耗时全被 Kernel Launch 开销掩盖。循环 2048 次且不访问 HBM，可以把**纯粹的 LDS 冲突代价**放大到毫秒级。
 - **为什么需要 `tile_std[...] = v + 1e-6f`？** 如果只读不写，编译器可能把循环不变量外提；读-改-写形成真依赖链，迫使硬件每一轮都真实发射 `ds_read_b32` 和 `ds_write_b32`。
 - **为什么这里触发了编译器警告？** 本 Kernel 以 `block_size = 1024` 启动但未写 `__launch_bounds__(1024)`，运行时提示 `Launch params (1024, 1, 1) are larger than launch bounds (256)`，实际工程中应显式标注 `__launch_bounds__`。
 
----
+:::
 
-## 3. 复现命令与 BW100 实测数据
-
-```bash
-cd /exp/dcu_microarch_exp
-make 03_lds_bank_conflict && ./03_lds_bank_conflict
-hipprof --pmc --pmc-type 3 -o prof_out/exp03 ./03_lds_bank_conflict
-python3 parse_hipprof_pmc.py prof_out/exp03.csv
-```
-
-### 原始终端输出
+::: details 查看原始终端输出
 
 ```text
 $ ./03_lds_bank_conflict
@@ -135,18 +151,4 @@ Kernel: _Z24lds_bank_conflict_kernelILi3EEvPf (calls=25)
   SQ_LDS_BANK_CONFLICT : 0 | SQ_WAIT_INST_LDS = 94,050,631
 ```
 
-### 结构化汇总表
-
-| LDS 访问模式 | LDS 占用 | `SQ_INSTS_LDS` | **`SQ_LDS_BANK_CONFLICT`** | **`SQ_WAIT_INST_LDS`** | 平均耗时 (ms) | 相对无冲突 |
-|---|---:|---:|---:|---:|---:|---:|
-| `0. Row-wise` | `4096 B` | `16,781,312` | **`0`** | `160,742,378` | `0.6578` | `1.00x` |
-| `1. Col-wise (32-way)` | `4096 B` | `16,781,312` | **`1,040,187,392`** | **`2,944,249,187`** | **`12.9097`** | **慢 `19.62x`** |
-| `2. Padding [32][33]` | `4224 B` | `16,781,312` | **`0`** | `99,406,587` | `0.6769` | 恢复 **`19.07x`** |
-| `3. XOR Swizzle` | **`4096 B`** | `16,781,312` | **`0`** | `94,050,631` | **`0.6751`** | 恢复 **`19.12x`** |
-
----
-
-## 4. 现象拆解与工程结论
-
-1. **10.4 亿次硬件冲突铁证：** Mode 1 执行了完全相同的 `1678 万` 次 LDS 指令，但 `SQ_LDS_BANK_CONFLICT` 暴涨至 **10.4 亿次**，`SQ_WAIT_INST_LDS` 等待周期翻了 **18.3 倍**（29.4 亿周期）。
-2. **Swizzle 是最优解：** Padding 多占用了 `128 B` LDS，在 LDS 紧张的算子中可能压低 Occupancy；而 **XOR Swizzle 在零额外 LDS 开销（`4096 B`）下完美清零冲突**，应作为矩阵转置、GEMM 与 FlashAttention 共享内存布局的首选方案。
+:::

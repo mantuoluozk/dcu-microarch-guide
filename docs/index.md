@@ -17,11 +17,14 @@
 - 项目定位、双主线技术路线、四大研究方向与 2027 年核心交付目标。
 
 ### 第一部分：DCU 微架构原理
-1. [1.1 整体架构、执行模型与软件栈链路](01-overview/software-stack.md) — Grid/Block/Wave64/CU 映射与 PyTorch → Triton/`lightop` → HIP/DTK → HSA 全链路。
-2. [1.2 线程映射、SIMT 分支与计算单元（含 MMAC）](02-compute/cu-and-simt.md) — `EXEC`/`VCC`/`SCC` 分支掩码、Scheduler、SALU、VALU、SFU 与 MMAC 矩阵引擎。
-3. [1.3 存储体系、合并访存与异步等待](03-memory/memory-hierarchy.md) — VGPR/SGPR、LDS 32-Bank 映射与 Swizzle、L1/L2 一致性、HBM Coalescing、`s_waitcnt` 与 Wave Shuffle。
-4. [1.4 Kernel 生命周期、Occupancy 与 Roofline 模型](04-scheduling/occupancy-and-roofline.md) — 资源分配粒度与悬崖效应、TLP vs ILP 延迟隐藏、Roofline 拐点定量判断。
-5. [1.5 微架构自动化分析与建模（待补充）](05-modeling/auto-analysis.md) — 自动化微架构体检、Roofline 诊断与 Skill 沉淀规划。
+
+每章先讲基础概念，再用同一个 1000 元素的向量加法串起这些概念。读完后合上教程，用三张白板图讲清楚任务、数据和等待。
+
+1. [1.1 从 Kernel 启动到 CU](01-overview/software-stack.md) — 手算 Grid、Block、wave 和尾部有效线程。
+2. [1.2 CU、Wavefront 与计算路径](02-compute/cu-and-simt.md) — 识别 SALU、VALU、MMAC 和 lane 执行掩码。
+3. [1.3 数据路径、缓存与同步](03-memory/memory-hierarchy.md) — 沿实际 ISA 读出加载、等待、计算与写回。
+4. [1.4 调度、Occupancy 与延迟隐藏](04-scheduling/occupancy-and-roofline.md) — 用 E04 数据解释驻留和独立加载链。
+5. [1.5 三分钟白板复述](01-overview/whiteboard-review.md) — 画图、脱稿讲解，再用变式题检查理解。
 
 ### 第二部分：Profiling 与性能分析工具链
 1. [2.1 工具链全景与软件栈探测](profiling/01-toolchain-overview.md) — `torch.profiler`、`hipprof`、ISA 导出与容器软件栈/硬件规格探测。

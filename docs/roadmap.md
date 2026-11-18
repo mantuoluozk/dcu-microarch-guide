@@ -18,4 +18,5 @@
 
 - **现有实验**基于 E04 的依赖链对照，进一步用顺序访问测量并发加载数量与流式带宽饱和的关系。
 - **下一代 DCU 对照**复用 E01、E06、E07 和 E09，附实际 DTK 与设备环境，校验计数器的含义及可比性。
+- **微架构自动化分析**根据基线数据生成设备档案和 Roofline 诊断。见 [自动化分析计划](05-modeling/auto-analysis.md)。
 - **推理专项算子**安排在微基准补充之后。从 [E10 · Triton GEMM 调优](labs/lab10-triton-gemm-tuning.md) 开始，使用真实 shape 验证优化收益，再研究 MoE Grouped GEMM、Attention / KV 访存和融合算子。

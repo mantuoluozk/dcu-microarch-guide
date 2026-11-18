@@ -1,18 +1,16 @@
-# 第 3 章：存储体系、合并访存与异步等待机制
+---
+outline: 2
+---
 
-::: tip 小白速读：先用大白话理解这一章
-数据放在哪里，速度天差地别：**寄存器（VGPR/SGPR）** 是手边的草稿纸（最快），**LDS** 是车间内的公共黑板（~60 周期，但 32 个人同时写同一列会“撞车”产生 Bank Conflict），**L1/L2 Cache** 是楼层和园区中转柜，**HBM 显存** 是楼下大仓库（要等 ~400 周期）。聪明的操作是：大家排好队一次拉一车整箱货（**合并访存 + `float4`**），并且一边等仓库送货、一边先算手头的活（**`s_waitcnt` 异步重叠**）。
+<script setup>
+import MicroarchDiagram from "../.vitepress/theme/MicroarchDiagram.vue"
+</script>
 
-:::
-## 四、VGPR、SGPR、LDS、Cache、HBM 的关系
+# 1.3 · 数据路径、缓存与同步
 
-GPU 的另一个核心问题是数据如何存储、访问和复用。
+**读完要能讲出来**　操作数从哪里来？什么时候能用？什么时候需要等其他线程？
 
-可以把这些存储资源分为两类：
-
-**软件显式使用的存储资源：** 寄存器、LDS、全局内存。
-
-**硬件缓存与访存体系：** L1、L2、Memory Controller 等。
+## 基础概念 · 寄存器、LDS、Cache 与 HBM
 
 ### 4.1 VGPR：向量寄存器
 
@@ -123,22 +121,22 @@ Lane 2 → Bank 0
 ...
 ```
 
-实际 Bank 映射与地址、访问宽度和硬件规则有关。在常见的 AMD/DCU 架构中，LDS 通常划分为 **32 个 Bank，每个 Bank 宽度为 4 字节（32-bit / 1 DWORD）**：
+以 E02 使用的 **32 bank、每个 bank 4 字节** 教学模型说明地址映射。实际服务方式还取决于访问宽度、指令和目标设备：
 
 
-\text{Bank ID} = \left\lfloor \frac{\text{Byte Address}}{4} \right\rfloor \bmod 32
+$$\text{Bank ID} = \left\lfloor \frac{\text{Byte Address}}{4} \right\rfloor \bmod 32$$
 
 
 理解这个公式能直接解释许多常见现象：
 
-- **32-bit 访存（如 `ds_read_b32`）：** 相邻线程访问连续的 `float`（步长 4B）时，依次落入 Bank 0~31，无冲突；但如果步长是 32 的倍数（例如对 `float tile[32][32]` 按列读取），所有线程落入同一个 Bank，引发 **32-way Bank Conflict**，吞吐骤降至 1/32。
-- **Broadcast（广播）：** 多个线程读取**完全相同的地址**时，硬件通常能合并为单次读取并广播给所有请求线程，不构成 Bank Conflict。
-- **宽指令访存（`ds_read_b64` / `ds_read_b128`）：** 单个线程一次读取 8B 或 16B 时会同时占用 2 个或 4 个连续 Bank；此时一个 Wavefront 往往拆成多个子周期（例如每 16 个或 8 个 Lane 一批）服务，只要同一批次内没有多个 Lane 撞到同一 Bank 即可无冲突。
+- **32-bit 读取：** 在上述模型中，32 个 lane 连续访问不同的 `float` 地址时落到不同 bank。行跨度为 32 时按列读，不同地址会映射到同一个 bank。实际耗时与冲突不是简单的固定倍率。
+- **相同地址的读取：** 硬件可能用广播服务多个 lane，需区分同地址和同 bank 的不同地址。
+- **宽指令访问：** 每个 lane 访问 8 或 16 字节时会覆盖多个 bank，分组与冲突规则看目标 ISA 和对应指令。
 
 常见的 LDS 优化方法包括：
 
 - Padding（例如将 `__shared__ float tile[32][32]` 改为 `tile[32][33]`，错开列方向的 Bank 对齐）。
-- Swizzle Layout（通过异或 `row ^ col` 重排存储索引，在不浪费额外 LDS 容量的前提下消除冲突，在 FlashAttention / GEMM 中极为常用）。
+- Swizzle Layout（通过异或 `row ^ col` 重排存储索引，在适用的访问模式下分散 bank 访问，且不增加布局的行跨度，在 FlashAttention / GEMM 中极为常用）。
 - 调整数据排列方式与向量化读写粒度。
 - 改变线程与数据的对应关系。
 - 减少不必要的 LDS 访问（能用寄存器 Shuffle 解决的就不进 LDS）。
@@ -151,11 +149,13 @@ GPU Cache 主要用于降低对更远端存储的访问成本。
 
 一般可以理解为：
 
-- **Vector L1（TCP）：** 靠近计算单元（通常 CU 私有或紧邻 CU），服务局部向量访存请求；**需要注意的是，不同 CU 的 L1 Cache 之间通常不自动维护硬件一致性**，因此跨 Block 通信（如全局原子操作、Persistent Kernel 标志位轮询）需要通过绕过 L1（如 `glc` / `slc` 缓存策略或 `atomic` 指令）直接与 L2 交互。
-- **L2（TCC）：** 覆盖更大范围，由多个 CU 共享，是所有全局访存和原子操作的一级一致性汇聚点。
-- **HBM：** 保存模型权重、激活、KV Cache 和其他全局数据。
+- **Vector L1** 靠近计算单元，服务部分向量加载。E06 在 BW100 上分别观察标量与向量路径的延迟变化。
+- **共享 L2** 为多 CU 的部分访存请求提供复用。E06 通过 TCC 计数观察到达对应层级的访问。
+- **HBM** 为设备数据提供大容量存储，例如输入、权重和输出。
 
 但不同 DCU 型号中 L1/L2 的实际结构、容量、Cache Line 大小和一致性机制需要通过实测或芯片手册分别确认。
+
+跨 Block 通信使用 HIP 提供的原子、同步与内存语义。缓存修饰符需结合目标 ISA 解读。
 
 LDS 和 Cache 的区别是：
 
@@ -167,10 +167,8 @@ LDS 和 Cache 的区别是：
 
 理解全局内存（HBM / L2 / L1）性能的关键在于 **Memory Coalescing**：
 
-- 当一个 Wavefront（64 个 Lane）执行一次全局加载指令时，硬件内存控制器会将这 64 个 Lane 的请求地址按 **Cache Line 粒度（常见为 64B 或 128B）** 进行合并。
-- **合并访问（Coalesced）：** 如果 Lane 0~63 访问连续的 64 个 `float`（共 256 字节），硬件只需发起极少数连续的 Cache Line 事务即可满足整个 Wavefront，带宽利用率极高。
-- **非合并/跨步访问（Uncoalesced / Strided）：** 如果相邻 Lane 访问步长很大的地址（例如按列访问行主序大矩阵），64 个请求可能分散到 64 个不同的 Cache Line 中，导致有效数据只占实际搬运字节的几分之一，带宽被严重浪费。
-- **向量化访存（`float4` / `dwordx4`）：** 让单个线程一次加载 128-bit（4 个 `float`），不仅能将访存指令数减少为 1/4、降低指令发射压力，还能更容易凑满连续的高效内存事务。
+- **合并访存**看相邻 lane 的地址能否由少量事务服务。连续访问通常比大步长散布到更多地址区域更有效。实际事务粒度由硬件和路径决定。
+- **向量化访存**看每个 lane 的单条指令搬多少数据。例如对齐且编译成宽指令的 `float4` 访问可搬 16 字节。合并度与向量宽度可单独变化，E01 分别测量它们。
 
 ### 4.6 HBM：全局显存
 
@@ -194,7 +192,67 @@ HBM 的两个重要性能指标：
 
 GPU 通过大量并行访存请求、缓存复用及 Wavefront 调度等机制提高整体有效吞吐。
 
-### 4.7 VMEM 与数据搬运单元
+## 区分三种等待
+
+| 谁在等 | 在等什么 | 举例 |
+|---|---|---|
+| 这个 wave 的后续指令 | 对应类别的未完成操作降到指令要求的阈值 | 向量加法路径中的 `s_waitcnt vmcnt(0)` 等待本例的向量内存操作结果 |
+| 同一个 Block 的线程 | 到达同一个屏障，协调共享数据访问 | 每个线程写入 LDS，对等线程需要在 `__syncthreads()` 后才能按约定读取 |
+| Host | 已提交工作的完成 | `hipStreamSynchronize(stream)` 等待该 stream 中的工作 |
+
+可以按顺序复述：**加载发出 → 依赖满足 → 消费寄存器结果 → 写回**。如果该步骤还向同一 Block 的其他线程交付 LDS 数据，就在生产者写入和消费者读取之间加入合适的 Block 同步。Host 想知道何时可以读取最终输出，再从 Host 侧等待相关工作完成。具体等待计数器范围以目标 ISA 为准。[LLVM AMDGPU 同步参考](https://llvm.org/docs/AMDGPUExecutionSynchronization.html)
+
+## 案例 · 从全局地址到计算
+
+<MicroarchDiagram kind="memory" />
+
+向量加法按 lane 读取各自元素，线程之间不交换数据，因此主例没有分配 LDS。分块矩阵乘加等需要线程协作或数据复用的 Kernel 可以用 LDS 暂存 tile。
+
+## 跟一条加载指令
+
+下面节选了主例在 BW100、DTK 26.04、DCC 25.10.0、`-O3` 下生成的设备 ISA。省略两次加载间的地址计算和其他指令。
+
+```asm
+global_load_dword  v4, v[2:3], off
+; 省略地址计算
+global_load_dword  v2, v[2:3], off
+; 省略其他指令
+s_waitcnt vmcnt(0)
+v_add_f32_e32      v2, v4, v2
+global_store_dword v[0:1], v2, off
+```
+
+两条加载的结果分别落在 `v4` 和 `v2`。依赖数据准备好后，向量加法才能使用它们。等待发生前，CU 可能发射同一 wave 中可执行的独立指令，也可能调度其他就绪 wave。[主例和编译命令](../01-overview/software-stack.md#动手运行)
+
+## 用三组数据检验直觉
+
+- **E01 合并访存。** 比较相邻 lane 地址间距和每线程访问宽度。合并度和向量化是两组独立对照，图中的 GB/s 按逻辑读写量计算。[E01](../labs/lab01-memory-coalescing.md)
+- **E02 LDS bank 冲突。** 看同一共享内存里，为什么改变地址分布会改变耗时和冲突计数。只读循环的 Padding、XOR 结果提供了对照。[E02](../labs/lab02-lds-bank-conflict.md)
+- **E06 缓存与延迟。** 看不同工作集下标量与向量加载的转折，配合 TCC 命中率图理解证据边界。延迟以 `clock64` tick 计，随路径和访问模式变化。[E06](../labs/lab08-memory-latency-ladder.md)
+
+::: details 复述题 · 写完 LDS 后，只执行 s_waitcnt，其他 wave 就可以读了吗？
+
+`s_waitcnt` 处理执行该指令的 wave 中指定类别的未完成操作。Block 内其他 wave 的到达和共享数据交换需要相应的屏障与内存语义。这个教学场景用 `__syncthreads()` 协调写入和读取。
+
+:::
+
+[继续 1.4 · 看 CU 如何隐藏等待](../04-scheduling/occupancy-and-roofline.md)
+
+## 进阶阅读
+
+::: details 查看访存指令、等待计数器和跨 lane 通信
+
+### 数据与访存路径补充
+
+GPU 的另一个核心问题是数据如何存储、访问和复用。
+
+可以把这些存储资源分为两类：
+
+**软件显式使用的存储资源：** 寄存器、LDS、全局内存。
+
+**硬件缓存与访存体系：** L1、L2、Memory Controller 等。
+
+#### 4.7 VMEM 与数据搬运单元
 
 除了计算单元，还要理解访存指令的执行路径。
 
@@ -237,28 +295,28 @@ MMAC 计算
 
 部分架构支持专门的数据搬运机制，可以缩短或优化上述路径。
 
-#### 异步访存与 `s_waitcnt` 硬件同步机制
+##### 异步访存与 `s_waitcnt` 硬件同步机制
 
 理解计算与访存重叠（Overlap）的关键在于：**GPU 的访存指令（VMEM、LDS、SMEM）通常是异步发射的**。
 
-当 Wavefront 发射一条 `global_load` 或 `ds_read` 指令后，硬件并不会立刻阻塞该 Wavefront，而是增加对应的未完成访存计数器，并允许 Wavefront 继续发射后续**不依赖该数据**的独立指令（如地址计算、上一轮 Tile 的 MMAC 计算）。直到真正需要消费该寄存器结果的指令之前，编译器会插入 `s_waitcnt` 指令进行显式等待：
+发出加载后，若指令与资源允许，一个 wave 可以继续发射不依赖该结果的独立指令。编译器在需要保证依赖完成的地方插入等待。以下是常见 AMDGPU 计数器的简化说明，具体编码与覆盖范围依目标 ISA 而变：
 
 - `vmcnt(k)`：等待未完成的 **VMEM**（全局显存/L1/L2）指令数量降到 `k` 及以下。
 - `lgkmcnt(k)`：等待未完成的 **LDS / SMEM** 指令数量降到 `k` 及以下。
 
 ```text
 Software Pipelining（双缓冲重叠）在指令流上的本质：
-1. 发射第 k+1 轮的 global_load  → vmcnt 变为 1（不阻塞）
-2. 执行第 k 轮的 MMAC 计算       → 趁数据在路上时占满矩阵单元！
-3. s_waitcnt vmcnt(0)           → 此时数据大概率已到达，等待时间极短
+1. 发射第 k+1 轮的 global_load
+2. 计算第 k 轮已经就绪的 tile
+3. 在消费第 k+1 轮数据前等待所需结果
 4. 进入第 k+1 轮计算
 ```
 
-如果在 Profiler 中看到某个 Kernel 有大量的 `Waitcnt Stall`，往往意味着 `vmcnt` 或 `lgkmcnt` 阻塞时间过长——要么是驻留 Wavefront 太少（TLP 不足），要么是单 Wave 内部独立指令不够（ILP / 双缓冲预取不足）。
+Profiler 中的等待计数应结合其采样与聚合定义、实际 ISA、内存路径和驻留条件解释。E04 与 E09 展示了如何对照独立链数和配置变化。
 
 具体采用什么路径，需要查看目标 ISA 和实际生成的指令。
 
-### 4.8 Wavefront 内跨 Lane 通信（Shuffle / DPP）与 LDS 的取舍
+#### 4.8 Wavefront 内跨 Lane 通信（Shuffle / DPP）与 LDS 的取舍
 
 在 4.3 节我们提到同一个 Block 内可以通过 LDS 交换数据，但如果只需要在**同一个 Wavefront（64 个 Lane）内部**交换数据（例如 Softmax / RMSNorm 中的 Max / Sum Reduction），往往有更快的硬件路径：
 
@@ -274,3 +332,5 @@ Software Pipelining（双缓冲重叠）在指令流上的本质：
 因此，在编写 Reduction 或 Attention Softmax 时，标准做法是 **“先在 Wave 内用 `__shfl_down` / `__shfl_xor` 规约到 Lane 0，再仅由各 Wave 的 Lane 0 写入 LDS 做跨 Wave 汇总”**，这样可以大幅削减 LDS 访问和同步开销。
 
 ---
+
+:::

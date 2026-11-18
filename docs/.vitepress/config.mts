@@ -69,11 +69,11 @@ export default defineConfig({
         text: '第一部分：DCU 微架构原理',
         collapsed: false,
         items: [
-          { text: '1.1 整体架构与软件栈', link: '/01-overview/software-stack' },
-          { text: '1.2 计算单元、SIMT 与 MMAC', link: '/02-compute/cu-and-simt' },
-          { text: '1.3 存储体系与 s_waitcnt', link: '/03-memory/memory-hierarchy' },
-          { text: '1.4 Occupancy 与 Roofline', link: '/04-scheduling/occupancy-and-roofline' },
-          { text: '1.5 自动化分析（待补充）', link: '/05-modeling/auto-analysis' }
+          { text: '1.1 从 Kernel 启动到 CU', link: '/01-overview/software-stack' },
+          { text: '1.2 CU、Wavefront 与计算路径', link: '/02-compute/cu-and-simt' },
+          { text: '1.3 数据路径、缓存与同步', link: '/03-memory/memory-hierarchy' },
+          { text: '1.4 调度与延迟隐藏', link: '/04-scheduling/occupancy-and-roofline' },
+          { text: '1.5 三分钟白板复述', link: '/01-overview/whiteboard-review' }
         ]
       },
       {

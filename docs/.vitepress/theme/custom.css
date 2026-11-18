@@ -84,7 +84,6 @@
 }
 
 /* Upcoming / TODO chapters: muted gray to contrast cleanly with completed chapters */
-.VPSidebarItem.is-link > .item > a.link[href*="auto-analysis"] .text,
 .VPSidebarItem.is-link > .item > a.link[href*="03-isa-and-sim"] .text,
 .VPSidebarItem.is-link > .item > a.link[href*="lab10-triton-gemm-tuning"] .text,
 .VPSidebarItem.is-link > .item > a.link[href*="framework-profiling"] .text,

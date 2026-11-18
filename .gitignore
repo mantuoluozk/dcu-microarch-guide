@@ -16,6 +16,7 @@ experiments/05_occupancy_and_ilp
 experiments/06_shuffle_vs_lds
 experiments/07_memory_latency_ladder
 experiments/08_mmac_builtin_bench
+experiments/tutorial_add
 experiments/isa_dump/
 experiments/prof_out/
 *.s
